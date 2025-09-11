@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*"]
+members = ["lib", "apps/*"]
 resolver = "3"
 
 [workspace.package]
@@ -7,18 +7,30 @@ authors = ["Jack Foltz <jack@foltz.io>"]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/foltik/rust-workspace"
+repository = "https://github.com/foltik/ravy"
 readme = "README.md"
-keywords = []
-categories = []
 
 
 [workspace.dependencies]
-rust-workspace-lib = { path = "./crates/lib", version = "0.1.0" }
-rust-workspace-bin = { path = "./crates/bin", version = "0.1.0" }
+lib = { path = "./lib" }
 
 argh = "0.1"
-anyhow = "1"
-thiserror = "2"
-log = "0.4"
-env_logger = { version = "0.11", default-features = false, features = ["auto-color"] }
+syn = "2"
+quote = "1"
+
+[workspace.dependencies.bevy]
+version = "0.16"
+default-features = false
+features = [
+    "bevy_log",
+    "bevy_winit",
+    "bevy_gltf",
+    "bevy_ui",
+    "default_font",
+    "animation",
+    "tonemapping_luts",
+    "png",
+    "dynamic_linking",
+    "multi_threaded",
+    "std",
+]
