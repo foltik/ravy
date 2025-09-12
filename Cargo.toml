@@ -29,6 +29,7 @@ features = [
     "default_font",
     "animation",
     "tonemapping_luts",
+    "jpeg",
     "png",
     "dynamic_linking",
     "multi_threaded",
