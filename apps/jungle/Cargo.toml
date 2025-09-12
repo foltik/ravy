@@ -1,0 +1,10 @@
+[package]
+name = "jungle"
+description = ""
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+lib.workspace = true
+bevy.workspace = true
+argh.workspace = true
