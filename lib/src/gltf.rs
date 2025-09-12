@@ -1,6 +1,7 @@
 #![allow(unused)]
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use bevy::animation::RepeatAnimation;
 use bevy::asset::AssetPath;
@@ -14,17 +15,17 @@ pub struct GltfScenePlugin;
 
 impl Plugin for GltfScenePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PreUpdate, load_gltfs_pre)
+        app.add_systems(PreUpdate, (reload_gltfs, load_gltfs_pre))
             .add_systems(PostUpdate, animate_gltfs);
     }
 }
 
-type MatchFn = Box<dyn Fn(&str) -> bool + Send + Sync + 'static>;
-type InsertFn = Box<dyn FnOnce(&mut EntityCommands) + Send + Sync + 'static>;
-type InsertMatchingFn = Box<dyn Fn(&mut EntityCommands) + Send + Sync + 'static>;
-type CameraFn = Box<dyn Fn(&mut Camera) + Send + Sync + 'static>;
+type MatchFn = Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>;
+type InsertFn = Arc<dyn Fn(&mut EntityCommands) + Send + Sync + 'static>;
+type InsertMatchingFn = Arc<dyn Fn(&mut EntityCommands) + Send + Sync + 'static>;
+type CameraFn = Arc<dyn Fn(&mut Camera) + Send + Sync + 'static>;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct GltfSceneBuilder {
     pub insert_fns: Vec<InsertFn>,
     pub insert_on_fns: HashMap<String, InsertFn>,
@@ -33,7 +34,7 @@ pub struct GltfSceneBuilder {
     pub replace_materials: HashMap<String, Handle<StandardMaterial>>,
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 struct GltfSceneLoader {
     handle: Handle<Gltf>,
     builder: GltfSceneBuilder,
@@ -58,24 +59,24 @@ impl GltfSceneBuilder {
     }
 
     pub fn camera(mut self, camera_fn: impl Fn(&mut Camera) + Send + Sync + 'static) -> Self {
-        self.camera_fn = Some(Box::new(camera_fn));
+        self.camera_fn = Some(Arc::new(camera_fn));
         self
     }
 
     /// Insert a component to the root scene entity.
-    pub fn insert<B: Bundle>(mut self, bundle: B) -> Self {
-        self.insert_fns.push(Box::new(move |cmds| {
-            cmds.insert(bundle);
+    pub fn insert<B: Bundle + Clone>(mut self, bundle: B) -> Self {
+        self.insert_fns.push(Arc::new(move |cmds| {
+            cmds.insert(bundle.clone());
         }));
         self
     }
 
     /// Insert a component to a named entity in the scene.
-    pub fn insert_on<B: Bundle>(mut self, entity: impl Into<String>, bundle: B) -> Self {
+    pub fn insert_on<B: Bundle + Clone>(mut self, entity: impl Into<String>, bundle: B) -> Self {
         self.insert_on_fns.insert(
             entity.into(),
-            Box::new(move |cmds| {
-                cmds.insert(bundle);
+            Arc::new(move |cmds| {
+                cmds.insert(bundle.clone());
             }),
         );
         self
@@ -88,8 +89,8 @@ impl GltfSceneBuilder {
         bundle: B,
     ) -> Self {
         self.insert_on_matching_fns.push((
-            Box::new(func),
-            Box::new(move |cmds| {
+            Arc::new(func),
+            Arc::new(move |cmds| {
                 cmds.insert(bundle.clone());
             }),
         ));
@@ -152,13 +153,13 @@ fn load_gltfs_post(
     let gltf = gltfs.get(&loader.handle).unwrap();
 
     // Add components to the root scene entity
-    for insert_fn in loader.builder.insert_fns.drain(..) {
+    for insert_fn in &loader.builder.insert_fns {
         insert_fn(&mut cmds.entity(scene));
     }
 
     // Add components to named child entities in the scene
-    for (name, insert_fn) in loader.builder.insert_on_fns.drain() {
-        let node_handle = gltf.named_nodes.get(&*name).unwrap_or_else(|| {
+    for (name, insert_fn) in &loader.builder.insert_on_fns {
+        let node_handle = gltf.named_nodes.get(name.as_str()).unwrap_or_else(|| {
             let names = gltf.named_nodes.keys().collect::<Vec<_>>();
             panic!("no such entity {name:?}. available: {names:?}")
         });
@@ -174,7 +175,7 @@ fn load_gltfs_post(
         insert_fn(&mut cmds.entity(child));
     }
 
-    for (match_fn, insert_fn) in loader.builder.insert_on_matching_fns.drain(..) {
+    for (match_fn, insert_fn) in &loader.builder.insert_on_matching_fns {
         for (name, node_handle) in &gltf.named_nodes {
             let name: &str = &*name;
             if match_fn(name) {
@@ -219,6 +220,24 @@ fn load_gltfs_post(
 
     cmds.entity(scene)
         .insert(GltfScene { animations, animation_player, animation_ops: vec![] });
+}
+
+fn reload_gltfs(
+    mut asset_events: EventReader<AssetEvent<Gltf>>,
+    children: Query<&Children>,
+    mut cmds: Commands,
+    scenes: Query<(Entity, &GltfSceneLoader)>,
+) {
+    for event in asset_events.read() {
+        if let AssetEvent::Modified { id } = event {
+            for (entity, loader) in scenes {
+                if loader.handle.id() == *id {
+                    cmds.entity(entity).despawn();
+                    cmds.spawn(loader.clone());
+                }
+            }
+        }
+    }
 }
 
 impl GltfScene {
