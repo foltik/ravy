@@ -19,13 +19,16 @@ impl Plugin for GltfScenePlugin {
     }
 }
 
+type MatchFn = Box<dyn Fn(&str) -> bool + Send + Sync + 'static>;
 type InsertFn = Box<dyn FnOnce(&mut EntityCommands) + Send + Sync + 'static>;
+type InsertMatchingFn = Box<dyn Fn(&mut EntityCommands) + Send + Sync + 'static>;
 type CameraFn = Box<dyn Fn(&mut Camera) + Send + Sync + 'static>;
 
 #[derive(Default)]
 pub struct GltfSceneBuilder {
     pub insert_fns: Vec<InsertFn>,
     pub insert_on_fns: HashMap<String, InsertFn>,
+    pub insert_on_matching_fns: Vec<(MatchFn, InsertMatchingFn)>,
     pub camera_fn: Option<CameraFn>,
     pub replace_materials: HashMap<String, Handle<StandardMaterial>>,
 }
@@ -75,6 +78,21 @@ impl GltfSceneBuilder {
                 cmds.insert(bundle);
             }),
         );
+        self
+    }
+
+    /// Insert a component to all entities in the scene whose name matches the given predicate.
+    pub fn insert_on_matching<B: Bundle + Clone>(
+        mut self,
+        func: impl Fn(&str) -> bool + Send + Sync + 'static,
+        bundle: B,
+    ) -> Self {
+        self.insert_on_matching_fns.push((
+            Box::new(func),
+            Box::new(move |cmds| {
+                cmds.insert(bundle.clone());
+            }),
+        ));
         self
     }
 
@@ -154,6 +172,23 @@ fn load_gltfs_post(
             .expect("no child with Name component");
 
         insert_fn(&mut cmds.entity(child));
+    }
+
+    for (match_fn, insert_fn) in loader.builder.insert_on_matching_fns.drain(..) {
+        for (name, node_handle) in &gltf.named_nodes {
+            let name: &str = &*name;
+            if match_fn(name) {
+                // unwrap(): it's guaranteed to be present once `SceneInstanceReady` fires
+                let node = gltf_nodes.get(node_handle).unwrap();
+
+                let child = children
+                    .iter_descendants(scene)
+                    .find(|&desc| names.get(desc).map_or(false, |n| n.as_str() == name))
+                    .expect("no child with Name component");
+
+                insert_fn(&mut cmds.entity(child));
+            }
+        }
     }
 
     // Modify the camera
