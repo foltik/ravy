@@ -1,5 +1,6 @@
-use bevy::prelude::*;
 use bevy::window::WindowMode;
+
+use crate::prelude::*;
 
 pub struct RavyPlugin {
     pub module: &'static str,
@@ -20,13 +21,17 @@ impl Plugin for RavyPlugin {
             filter: format!("{deps_log_level},{}={app_log_level}", self.module),
             ..default()
         }))
+        .add_plugins(bevy_egui::EguiPlugin::default())
+        .add_plugins(crate::debug::DebugPlugin)
         .add_plugins(crate::gltf::GltfScenePlugin)
+        .add_plugins(crate::audio::AudioPlugin)
         .add_systems(PreUpdate, hotkeys);
     }
 }
 
 pub fn hotkeys(
     keys: Res<ButtonInput<KeyCode>>,
+    mut debug: ResMut<Debug>,
     mut window: Single<&mut Window>,
     mut exit: EventWriter<AppExit>,
 ) {
@@ -39,5 +44,9 @@ pub fn hotkeys(
             WindowMode::Windowed => WindowMode::BorderlessFullscreen(MonitorSelection::Current),
             _ => WindowMode::Windowed,
         };
+    }
+
+    if keys.just_pressed(KeyCode::KeyD) {
+        debug.ui = !debug.ui;
     }
 }

@@ -15,8 +15,14 @@ readme = "README.md"
 lib = { path = "./lib" }
 
 argh = "0.1"
+anyhow = "1"
 syn = "2"
 quote = "1"
+
+cpal = "0.16"
+rtrb = "0.3"
+
+bevy_egui = "0.36"
 
 [workspace.dependencies.bevy]
 version = "0.16"
@@ -26,6 +32,7 @@ features = [
     "bevy_winit",
     "bevy_gltf",
     "bevy_ui",
+    "bevy_picking",
     "default_font",
     "animation",
     "tonemapping_luts",
