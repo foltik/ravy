@@ -1,5 +1,5 @@
-pub mod color;
-pub use color::*;
+pub mod palette;
+pub use palette::*;
 
 pub mod pos;
 pub use pos::*;
