@@ -11,3 +11,6 @@ pub use audio::*;
 pub use debug::*;
 pub use gltf::*;
 pub use plugin::RavyPlugin;
+
+// A fake FloatExt trait to shadow bevy's which has a conflicting lerp() method
+pub trait FloatExt {}

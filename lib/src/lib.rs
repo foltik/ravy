@@ -15,7 +15,7 @@ pub mod osc;
 pub mod prelude {
     pub use anyhow::Context;
 
-    pub use crate::bevy::*;
+    pub use crate::bevy::{FloatExt, *};
     pub use crate::color::*;
     pub use crate::dmx::{DmxDevice, DmxUniverse};
     pub use crate::e131::E131;

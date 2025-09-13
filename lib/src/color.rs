@@ -1,4 +1,4 @@
-use crate::num::Interp;
+use crate::prelude::*;
 
 /// An (r, g, b) color.
 #[derive(Default, Clone, Copy, Debug, PartialEq)]
@@ -42,11 +42,22 @@ mod conv {
             Self(r, g, b)
         }
     }
-
     impl From<Rgb> for Rgbw {
         /// Convert Rgb -> Rgbw.
         fn from(Rgb(r, g, b): Rgb) -> Self {
             Self(r, g, b, 0.0)
+        }
+    }
+
+    impl Into<egui::Color32> for Rgbw {
+        fn into(self) -> egui::Color32 {
+            Rgb::from(self).into()
+        }
+    }
+    impl Into<egui::Color32> for Rgb {
+        fn into(self) -> egui::Color32 {
+            let Rgb(r, g, b) = self;
+            egui::Color32::from_rgba_premultiplied(r.byte(), g.byte(), b.byte(), 255)
         }
     }
 }
