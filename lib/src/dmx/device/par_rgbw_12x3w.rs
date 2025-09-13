@@ -3,7 +3,7 @@
 //! https://www.aliexpress.com/w/wholesale-12x3w-rgbw-dmx-led-par-light.html
 
 use crate::color::Rgbw;
-use crate::dmx::Device;
+use crate::dmx::DmxDevice;
 use crate::num::Interp;
 
 #[derive(Clone, Copy, Debug)]
@@ -11,7 +11,7 @@ pub struct Par {
     pub color: Rgbw,
 }
 
-impl Device for Par {
+impl DmxDevice for Par {
     fn channels(&self) -> usize {
         8
     }

@@ -2,12 +2,14 @@ mod byte;
 mod ease;
 mod ema;
 mod interp;
+mod pd;
 mod range;
 
 pub use byte::Byte;
 pub use ease::Ease;
 pub use ema::Ema;
 pub use interp::Interp;
+pub use pd::Pd;
 pub use range::Range;
 
 /// τ, a full circle.

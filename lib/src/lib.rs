@@ -6,14 +6,20 @@ pub mod bevy;
 pub mod color;
 pub mod dmx;
 pub mod e131;
+pub mod lights;
 pub mod midi;
 pub mod num;
 pub mod osc;
 
 /// A set of common traits and types. Bring in scope with `use prelude::*`.
 pub mod prelude {
+    pub use anyhow::Context;
+
     pub use crate::bevy::*;
-    pub use crate::color::{Rgb, Rgbw};
-    pub use crate::midi::Midi;
-    pub use crate::num::{Byte, Ease, Ema, Interp, Range, TAU, TAU_2, TAU_4};
+    pub use crate::color::*;
+    pub use crate::dmx::{DmxDevice, DmxUniverse};
+    pub use crate::e131::E131;
+    pub use crate::midi::{Midi, MidiDevice};
+    pub use crate::num::{Ease, *};
+    pub use crate::osc::*;
 }

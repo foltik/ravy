@@ -3,7 +3,7 @@
 //! TODO: amazon link
 
 use crate::color::Rgbw;
-use crate::dmx::Device;
+use crate::dmx::DmxDevice;
 use crate::num::Interp;
 
 #[derive(Clone, Copy, Debug)]
@@ -55,7 +55,7 @@ pub enum BeamRing {
     Raw(u8),
 }
 
-impl Device for Beam {
+impl DmxDevice for Beam {
     fn channels(&self) -> usize {
         15
     }

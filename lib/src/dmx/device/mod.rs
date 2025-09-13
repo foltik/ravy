@@ -7,8 +7,3 @@ pub mod laser_scan_30w;
 pub mod par_rgbw_12x3w;
 pub mod spider_rgbw_8x10w;
 pub mod strobe_rgb_35w;
-
-pub trait Device {
-    fn channels(&self) -> usize;
-    fn encode(&self, buf: &mut [u8]);
-}

@@ -4,7 +4,7 @@
 //! https://www.aliexpress.com/w/wholesale-Beam-60W-LED-Moving-Head-RGBW-4-IN-1-Stage-Lightin.html
 
 use crate::color::Rgbw;
-use crate::dmx::Device;
+use crate::dmx::DmxDevice;
 use crate::num::Interp;
 
 #[derive(Clone, Copy, Debug)]
@@ -17,7 +17,7 @@ pub struct BigBeam {
     pub strobe: f32,
 }
 
-impl Device for BigBeam {
+impl DmxDevice for BigBeam {
     fn channels(&self) -> usize {
         13
     }

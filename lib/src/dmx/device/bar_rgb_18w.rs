@@ -3,7 +3,7 @@
 //! https://www.amazon.com/gp/product/B0045EP4WG
 
 use crate::color::Rgbw;
-use crate::dmx::Device;
+use crate::dmx::DmxDevice;
 use crate::num::Interp;
 
 #[derive(Default, Clone, Copy, Debug)]
@@ -12,7 +12,7 @@ pub struct Bar {
     pub alpha: f32,
 }
 
-impl Device for Bar {
+impl DmxDevice for Bar {
     fn channels(&self) -> usize {
         7
     }

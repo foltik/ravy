@@ -3,7 +3,7 @@
 //! https://www.amazon.com/gp/product/B081H833BG
 
 use crate::color::Rgbw;
-use crate::dmx::Device;
+use crate::dmx::DmxDevice;
 use crate::num::Interp;
 
 #[derive(Clone, Copy, Debug)]
@@ -19,7 +19,7 @@ pub struct Spider {
     pub pos1: f32,
 }
 
-impl Device for Spider {
+impl DmxDevice for Spider {
     fn channels(&self) -> usize {
         15
     }

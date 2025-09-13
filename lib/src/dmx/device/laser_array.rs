@@ -3,7 +3,7 @@
 //! https://www.amazon.com/gp/product/B09LVGQ2GY
 
 use crate::color::Rgb;
-use crate::dmx::Device;
+use crate::dmx::DmxDevice;
 use crate::num::Interp;
 
 #[derive(Clone, Copy, Debug)]
@@ -72,7 +72,7 @@ impl Default for LaserArray {
     }
 }
 
-impl Device for LaserArray {
+impl DmxDevice for LaserArray {
     fn channels(&self) -> usize {
         5
     }

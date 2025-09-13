@@ -2,7 +2,7 @@
 //!
 //! <TODO: amazon link>
 
-use crate::dmx::Device;
+use crate::dmx::DmxDevice;
 use crate::num::Interp;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -17,7 +17,7 @@ pub struct Gobo {
     pub auto: f32,
 }
 
-impl Device for Gobo {
+impl DmxDevice for Gobo {
     fn channels(&self) -> usize {
         9
     }

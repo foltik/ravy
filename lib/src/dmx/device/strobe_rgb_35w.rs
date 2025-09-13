@@ -3,7 +3,7 @@
 //! https://www.amazon.com/gp/product/B01MZYQJSA
 
 use crate::color::Rgb;
-use crate::dmx::Device;
+use crate::dmx::DmxDevice;
 use crate::num::Interp;
 
 #[derive(Clone, Copy, Debug)]
@@ -13,7 +13,7 @@ pub struct Strobe {
     pub alpha: f32,
 }
 
-impl Device for Strobe {
+impl DmxDevice for Strobe {
     fn channels(&self) -> usize {
         6
     }

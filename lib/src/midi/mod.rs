@@ -9,7 +9,7 @@ use midir::{MidiInput, MidiInputConnection, MidiOutput};
 use crate::prelude::*;
 
 pub mod device;
-use device::MidiDevice;
+pub use device::MidiDevice;
 
 /// A MIDI device.
 pub enum Midi<D: MidiDevice> {
