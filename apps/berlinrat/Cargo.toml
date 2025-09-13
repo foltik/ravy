@@ -1,11 +1,11 @@
 [package]
-name = "example"
+name = "berlinrat"
 version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "example"
-path = "src/example.rs"
+name = "berlinrat"
+path = "src/berlinrat.rs"
 
 [dependencies]
 lib.workspace = true

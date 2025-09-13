@@ -1,5 +1,6 @@
 use bevy::core_pipeline::bloom::Bloom;
 use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::pbr::{FogVolume, VolumetricFog, VolumetricLight};
 use lib::prelude::*;
 
 const GROW_GAIN: f32 = 1.0; // RMS factor
@@ -11,6 +12,24 @@ const WAVE_LENGTH: f32 = 0.5; // Distance between crests in meters
 const WAVE_M: f32 = 0.05; // Maximum forward offset in meters
 
 const BOB_M: f32 = 1.0; // Bob amplitude in meters
+
+/*
+ *
+# Ideas
+- jungle temple spinning with giant light and fog https://bevy.org/examples/3d-rendering/fog/
+- monkeys swinging from vines
+- MOSH spinning 3d text and animals vibrate surrounding speakers
+- elephant that shoots a laser out the trunk
+- loop of walking down a dense path with lots of foliage
+
+# Todo
+- fullscreen post-processing shaders (edge detection, glitch, melt)
+- reusable components and systems for common animations
+- incorporate Midi, Dmx
+- scene switching system
+- integrate bevy_inspector_egui
+
+*/
 
 /// ----------------------------------------------------------
 
@@ -39,7 +58,19 @@ fn setup(mut cmds: Commands, assets: Res<AssetServer>) {
     info!("Hello, world!");
 
     GltfSceneBuilder::new()
-        .insert_on("Camera", (Tonemapping::TonyMcMapface, Bloom::NATURAL))
+        .insert_on(
+            "Camera",
+            (
+                Tonemapping::TonyMcMapface,
+                Bloom::NATURAL,
+                VolumetricFog {
+                    // This value is explicitly set to 0 since we have no environment map light
+                    ambient_intensity: 0.8,
+                    ..default()
+                },
+            ),
+        )
+        .insert_on("Light", VolumetricLight)
         .insert_on("Icosphere", Bob::default())
         .insert_on_matching(|name| name.starts_with("Speakers.0"), (Grow::default(), Wave::default()))
         .camera(|cam| {
@@ -47,6 +78,21 @@ fn setup(mut cmds: Commands, assets: Res<AssetServer>) {
             cam.clear_color = ClearColorConfig::Custom(Color::BLACK);
         })
         .spawn("Jungle.glb", &mut cmds, &assets);
+
+    cmds.spawn((
+        Transform::from_xyz(0.0, 6.9, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
+        SpotLight {
+            intensity: 50000.0, // lumens
+            color: GREEN.into(),
+            shadows_enabled: true,
+            inner_angle: 0.35,
+            outer_angle: 0.85,
+            ..default()
+        },
+        VolumetricLight,
+    ));
+
+    cmds.spawn((FogVolume::default(), Transform::from_scale(Vec3::splat(60.0))));
 }
 
 // -------------------------------------------------------------------------------

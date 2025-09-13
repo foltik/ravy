@@ -1,8 +1,11 @@
 [package]
 name = "jungle"
-description = ""
 version.workspace = true
 edition.workspace = true
+
+[[bin]]
+name = "jungle"
+path = "src/jungle.rs"
 
 [dependencies]
 lib.workspace = true
