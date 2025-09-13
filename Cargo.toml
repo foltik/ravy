@@ -19,8 +19,12 @@ anyhow = "1"
 syn = "2"
 quote = "1"
 
+midir = "0.10"
+rosc = "0.5"
 cpal = "0.16"
 rtrb = "0.3"
+sacn = { git = "https://github.com/RustLight/sacn" }
+rand = "0.8"
 
 bevy_egui = "0.36"
 

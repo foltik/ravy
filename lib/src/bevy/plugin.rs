@@ -22,9 +22,9 @@ impl Plugin for RavyPlugin {
             ..default()
         }))
         .add_plugins(bevy_egui::EguiPlugin::default())
-        .add_plugins(crate::debug::DebugPlugin)
-        .add_plugins(crate::gltf::GltfScenePlugin)
-        .add_plugins(crate::audio::AudioPlugin)
+        .add_plugins(super::debug::DebugPlugin)
+        .add_plugins(super::gltf::GltfScenePlugin)
+        .add_plugins(super::audio::AudioPlugin)
         .add_systems(PreUpdate, hotkeys);
     }
 }
