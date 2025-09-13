@@ -10,7 +10,7 @@ use crate::num::Interp;
 pub struct Strobe {
     // pub mode: StrobeMode,
     pub color: Rgb,
-    pub alpha: f64,
+    pub alpha: f32,
 }
 
 impl Device for Strobe {

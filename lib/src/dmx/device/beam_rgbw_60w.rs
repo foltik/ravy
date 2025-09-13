@@ -11,12 +11,12 @@ pub struct Beam {
     pub mode: BeamMode,
     pub ring: BeamRing,
 
-    pub pitch: f64,
-    pub yaw: f64,
-    pub speed: f64,
+    pub pitch: f32,
+    pub yaw: f32,
+    pub speed: f32,
 
     pub color: Rgbw,
-    pub alpha: f64,
+    pub alpha: f32,
 }
 
 #[derive(Clone, Copy, Debug)]

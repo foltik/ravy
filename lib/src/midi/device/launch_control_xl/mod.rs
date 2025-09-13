@@ -9,11 +9,11 @@ pub struct LaunchControlXL;
 
 #[derive(Copy, Clone, Debug)]
 pub enum Input {
-    Slider(u8, f64),
+    Slider(u8, f32),
 
-    SendA(u8, f64),
-    SendB(u8, f64),
-    Pan(u8, f64),
+    SendA(u8, f32),
+    SendB(u8, f32),
+    Pan(u8, f32),
 
     Mode(Mode),
     TrackSelect(bool, bool),
@@ -207,14 +207,14 @@ impl MidiDevice for LaunchControlXL {
     }
 }
 
-fn float(v: u8) -> f64 {
-    (v as f64) / 127.0
+fn float(v: u8) -> f32 {
+    (v as f32) / 127.0
 }
 
-fn float_diverging(v: u8) -> f64 {
+fn float_diverging(v: u8) -> f32 {
     if v >= 0x40 {
-        ((v - 0x40) as f64) / 63.0
+        ((v - 0x40) as f32) / 63.0
     } else {
-        -1.0 + ((v as f64) / 64.0)
+        -1.0 + ((v as f32) / 64.0)
     }
 }

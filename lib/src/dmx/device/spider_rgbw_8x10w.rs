@@ -9,14 +9,14 @@ use crate::num::Interp;
 #[derive(Clone, Copy, Debug)]
 pub struct Spider {
     // pub mode: SpiderMode,
-    // pub speed: f64,
-    pub alpha: f64,
+    // pub speed: f32,
+    pub alpha: f32,
 
     pub color0: Rgbw,
-    pub pos0: f64,
+    pub pos0: f32,
 
     pub color1: Rgbw,
-    pub pos1: f64,
+    pub pos1: f32,
 }
 
 impl Device for Spider {

@@ -2,11 +2,11 @@ use crate::num::Interp;
 
 /// An (r, g, b) color.
 #[derive(Default, Clone, Copy, Debug, PartialEq)]
-pub struct Rgb(pub f64, pub f64, pub f64);
+pub struct Rgb(pub f32, pub f32, pub f32);
 
 impl Rgb {
     /// Generate an HSV color. All parameters range from `0.0..1.0`.
-    pub fn hsv(hue: f64, sat: f64, val: f64) -> Self {
+    pub fn hsv(hue: f32, sat: f32, val: f32) -> Self {
         let r = val * sat.lerp(1.0..(((hue + (3.0 / 3.0)).fract() * 6.0 - 3.0).abs() - 1.0).clamp(0.0, 1.0));
         let g = val * sat.lerp(1.0..(((hue + (2.0 / 3.0)).fract() * 6.0 - 3.0).abs() - 1.0).clamp(0.0, 1.0));
         let b = val * sat.lerp(1.0..(((hue + (1.0 / 3.0)).fract() * 6.0 - 3.0).abs() - 1.0).clamp(0.0, 1.0));
@@ -17,7 +17,7 @@ impl Rgb {
 
 /// An (r, g, b, w) color.
 #[derive(Default, Clone, Copy, PartialEq, Debug)]
-pub struct Rgbw(pub f64, pub f64, pub f64, pub f64);
+pub struct Rgbw(pub f32, pub f32, pub f32, pub f32);
 
 /// Conversions
 mod conv {
@@ -57,28 +57,28 @@ mod ops {
 
     use super::*;
 
-    // Rgb * f64 -> Rgb, with each color channel scaled.
-    impl Mul<f64> for Rgb {
+    // Rgb * f32 -> Rgb, with each color channel scaled.
+    impl Mul<f32> for Rgb {
         type Output = Rgb;
-        fn mul(self, fr: f64) -> Rgb {
+        fn mul(self, fr: f32) -> Rgb {
             Self(self.0 * fr, self.1 * fr, self.2 * fr)
         }
     }
-    impl MulAssign<f64> for Rgb {
-        fn mul_assign(&mut self, rhs: f64) {
+    impl MulAssign<f32> for Rgb {
+        fn mul_assign(&mut self, rhs: f32) {
             *self = *self * rhs;
         }
     }
 
-    // Rgbw * f64 -> Rgbw, with each color channel scaled.
-    impl Mul<f64> for Rgbw {
+    // Rgbw * f32 -> Rgbw, with each color channel scaled.
+    impl Mul<f32> for Rgbw {
         type Output = Rgbw;
-        fn mul(self, fr: f64) -> Rgbw {
+        fn mul(self, fr: f32) -> Rgbw {
             Self(self.0 * fr, self.1 * fr, self.2 * fr, self.3 * fr)
         }
     }
-    impl MulAssign<f64> for Rgbw {
-        fn mul_assign(&mut self, rhs: f64) {
+    impl MulAssign<f32> for Rgbw {
+        fn mul_assign(&mut self, rhs: f32) {
             *self = *self * rhs;
         }
     }

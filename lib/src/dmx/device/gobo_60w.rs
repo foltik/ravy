@@ -7,14 +7,14 @@ use crate::num::Interp;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Gobo {
-    pub pan: f64,
-    pub tilt: f64,
-    pub color: f64,
-    pub pattern: f64,
-    pub strobe: f64,
-    pub alpha: f64,
-    pub speed: f64,
-    pub auto: f64,
+    pub pan: f32,
+    pub tilt: f32,
+    pub color: f32,
+    pub pattern: f32,
+    pub strobe: f32,
+    pub alpha: f32,
+    pub speed: f32,
+    pub auto: f32,
 }
 
 impl Device for Gobo {

@@ -9,12 +9,12 @@ use crate::num::Interp;
 
 #[derive(Clone, Copy, Debug)]
 pub struct BigBeam {
-    pub pitch: f64,
-    pub yaw: f64,
-    pub speed: f64,
+    pub pitch: f32,
+    pub yaw: f32,
+    pub speed: f32,
     pub color: Rgbw,
-    pub alpha: f64,
-    pub strobe: f64,
+    pub alpha: f32,
+    pub strobe: f32,
 }
 
 impl Device for BigBeam {

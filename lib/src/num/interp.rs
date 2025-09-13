@@ -12,7 +12,7 @@ pub trait Interp: Sized {
     /// Modulo with support for negative nuambers, aka Euclidean remainder
     fn fmod(self, v: Self) -> Self;
     /// Modulo by a value, then divide by it
-    fn fmod_div(self, v: f64) -> Self;
+    fn fmod_div(self, v: f32) -> Self;
     /// Interpolate self in 0..1 onto another range
     fn lerp<R: Into<Range>>(self, onto: R) -> Self;
     /// Interpolate self from a range onto 0..1
@@ -69,82 +69,82 @@ pub trait Interp: Sized {
     fn midi_byte(self) -> u8;
 }
 
-impl Interp for f64 {
-    fn step(self, threshold: f64) -> f64 {
+impl Interp for f32 {
+    fn step(self, threshold: f32) -> f32 {
         if self < threshold {
             0.0
         } else {
             1.0
         }
     }
-    fn bstep(self, threshold: f64) -> bool {
+    fn bstep(self, threshold: f32) -> bool {
         self.step(threshold) == 1.0
     }
 
-    fn clip<R: Into<Range>>(self, range: R) -> f64 {
+    fn clip<R: Into<Range>>(self, range: R) -> f32 {
         let range = range.into();
         self.clamp(range.lo, range.hi)
     }
 
-    fn fmod(self, v: f64) -> f64 {
+    fn fmod(self, v: f32) -> f32 {
         self.rem_euclid(v)
     }
-    fn fmod_div(self, v: f64) -> f64 {
+    fn fmod_div(self, v: f32) -> f32 {
         self.fmod(v) / v
     }
 
-    fn lerp<R: Into<Range>>(self, onto: R) -> f64 {
+    fn lerp<R: Into<Range>>(self, onto: R) -> f32 {
         let (i, j) = onto.into().bounds();
         i + self.clamp(0.0, 1.0) * (j - i)
     }
-    fn ilerp<R: Into<Range>>(self, from: R) -> f64 {
+    fn ilerp<R: Into<Range>>(self, from: R) -> f32 {
         let (i, j) = from.into().bounds();
         (self - i) / (j - i)
     }
-    fn phase(self, pd: f64, fr: f64) -> f64 {
+    fn phase(self, pd: f32, fr: f32) -> f32 {
         (self + (fr * pd)).rem_euclid(pd)
     }
 
-    fn line(self, slope: f64, intercept: f64) -> f64 {
+    fn line(self, slope: f32, intercept: f32) -> f32 {
         (self * slope) + intercept
     }
-    fn cover(self, amt: f64) -> f64 {
+    fn cover(self, amt: f32) -> f32 {
         self.line(amt, (1.0 - amt) / 2.0)
     }
 
-    fn ssin(self, pd: f64) -> f64 {
+    fn ssin(self, pd: f32) -> f32 {
         let t = (2.0 * TAU_2 * self) / pd;
         t.sin()
     }
-    fn scos(self, pd: f64) -> f64 {
+    fn scos(self, pd: f32) -> f32 {
         let t = (2.0 * TAU_2 * self) / pd;
         t.cos()
     }
-    fn fsin(self, pd: f64) -> f64 {
+    fn fsin(self, pd: f32) -> f32 {
         let t = (2.0 * TAU_2 * self) / pd + (TAU_2 / 2.0);
         0.5 * t.sin() + 0.5
     }
-    fn fcos(self, pd: f64) -> f64 {
+    fn fcos(self, pd: f32) -> f32 {
         self.phase(pd, 0.5).fsin(pd)
     }
-    fn ramp(self, pd: f64) -> f64 {
+    fn ramp(self, pd: f32) -> f32 {
         self.fmod(pd) / pd
     }
-    fn tri(self, pd: f64) -> f64 {
+    fn tri(self, pd: f32) -> f32 {
         let ramp = (2.0 * self - pd).fmod(2.0 * pd);
         (ramp - pd).abs() / pd
     }
-    fn square(self, pd: f64, duty: f64) -> f64 {
+    fn square(self, pd: f32, duty: f32) -> f32 {
         1.0 - self.fmod(pd).step(pd * duty)
     }
-    fn negsquare(self, pd: f64, duty: f64) -> f64 {
+    fn negsquare(self, pd: f32, duty: f32) -> f32 {
         2.0 * (1.0 - self.fmod(pd).step(pd * duty)) - 1.0
     }
-    fn bsquare(self, pd: f64, duty: f64) -> bool {
+    fn bsquare(self, pd: f32, duty: f32) -> bool {
         self.square(pd, duty) == 1.0
     }
 
-    fn trapazoid(self, pd: f64, ramp_dur: f64) -> Self {
+    fn trapazoid(self, pd: f32, ramp_dur: f32) -> Self {
         if self < ramp_dur {
             self / ramp_dur
         } else if self < pd - ramp_dur {

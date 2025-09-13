@@ -31,7 +31,7 @@ pub type OscMessage = (String, Vec<OscType>);
 pub enum OscType {
     Bool(bool),
     Int(i64),
-    Float(f64),
+    Float(f32),
     String(String),
     Blob(Vec<u8>),
     Array(Vec<OscType>),
@@ -125,8 +125,8 @@ impl From<RoscType> for OscType {
             RoscType::Bool(b) => OscType::Bool(b),
             RoscType::Int(i) => OscType::Int(i as i64),
             RoscType::Long(i) => OscType::Int(i),
-            RoscType::Float(f) => OscType::Float(f as f64),
-            RoscType::Double(f) => OscType::Float(f),
+            RoscType::Float(f) => OscType::Float(f),
+            RoscType::Double(f) => OscType::Float(f as f32),
             RoscType::String(str) => OscType::String(str),
             RoscType::Blob(b) => OscType::Blob(b),
             RoscType::Array(arr) => OscType::Array(arr.content.into_iter().map(OscType::from).collect()),
@@ -141,7 +141,7 @@ impl From<OscType> for RoscType {
         match ty {
             OscType::Bool(b) => RoscType::Bool(b),
             OscType::Int(i) => RoscType::Long(i),
-            OscType::Float(f) => RoscType::Float(f as f32),
+            OscType::Float(f) => RoscType::Float(f),
             OscType::String(str) => RoscType::String(str),
             OscType::Blob(b) => RoscType::Blob(b),
             OscType::Array(arr) => {

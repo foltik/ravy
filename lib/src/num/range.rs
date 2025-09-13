@@ -1,8 +1,8 @@
 /// A bounded range from `(lo, hi]`
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Range {
-    pub lo: f64,
-    pub hi: f64,
+    pub lo: f32,
+    pub hi: f32,
 }
 
 impl Range {
@@ -12,7 +12,7 @@ impl Range {
     }
 
     /// Return a pair of the `lo` and `hi` bounds.
-    pub fn bounds(self) -> (f64, f64) {
+    pub fn bounds(self) -> (f32, f32) {
         (self.lo, self.hi)
     }
 
@@ -32,8 +32,8 @@ macro_rules! impl_from {
             impl From<std::ops::Range<$ty>> for Range {
                 fn from(r: std::ops::Range<$ty>) -> Self {
                     Self {
-                        lo: r.start as f64,
-                        hi: r.end as f64,
+                        lo: r.start as f32,
+                        hi: r.end as f32,
                     }
                 }
             }
@@ -41,4 +41,4 @@ macro_rules! impl_from {
     };
 }
 
-impl_from!(f64, i32);
+impl_from!(f32, i32);

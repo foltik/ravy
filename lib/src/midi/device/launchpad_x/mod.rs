@@ -27,11 +27,11 @@ impl Default for LaunchpadX {
 
 #[derive(Copy, Clone, Debug)]
 pub enum Input {
-    Press(Index, f64),
+    Press(Index, f32),
     Release(Index),
 
-    MonoPressure(f64),
-    PolyPressure(Index, f64),
+    MonoPressure(f32),
+    PolyPressure(Index, f32),
 
     Up(bool),
     Down(bool),
@@ -78,7 +78,7 @@ pub enum Output {
     Batch(Vec<(Pos, Color)>),
 
     Mode(Mode),
-    Brightness(f64),
+    Brightness(f32),
     Velocity(Velocity),
     Pressure(Pressure, PressureCurve),
 

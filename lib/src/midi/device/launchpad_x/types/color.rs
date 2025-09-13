@@ -1,7 +1,7 @@
 #[derive(Copy, Clone, Debug)]
 pub enum Color {
     Palette(PaletteColor),
-    Rgb(f64, f64, f64),
+    Rgb(f32, f32, f32),
 }
 
 impl From<PaletteColor> for Color {

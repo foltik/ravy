@@ -8,8 +8,8 @@ use crate::num::Interp;
 
 #[derive(Clone, Copy, Debug)]
 pub struct LaserArray {
-    pub angle: f64,
-    pub brightness: f64,
+    pub angle: f32,
+    pub brightness: f32,
     pub color: LaserColor,
 }
 

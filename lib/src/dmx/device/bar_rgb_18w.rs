@@ -9,7 +9,7 @@ use crate::num::Interp;
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Bar {
     pub color: Rgbw,
-    pub alpha: f64,
+    pub alpha: f32,
 }
 
 impl Device for Bar {

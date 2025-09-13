@@ -14,12 +14,12 @@ pub struct Laser {
     pub color: LaserColor,
     pub stroke: LaserStroke,
 
-    pub rotate: f64,
-    pub xflip: f64,
-    pub yflip: f64,
-    pub x: f64,
-    pub y: f64,
-    pub size: f64,
+    pub rotate: f32,
+    pub xflip: f32,
+    pub yflip: f32,
+    pub x: f32,
+    pub y: f32,
+    pub size: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -32,8 +32,8 @@ pub enum LaserColor {
 
 #[derive(Clone, Copy, Debug)]
 pub enum LaserStroke {
-    Solid(f64),
-    Dots(f64),
+    Solid(f32),
+    Dots(f32),
 }
 
 #[derive(Clone, Copy, Debug)]
