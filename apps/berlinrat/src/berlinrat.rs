@@ -51,6 +51,9 @@ fn setup(mut cmds: Commands) -> Result {
     cmds.insert_resource(Lights::default());
     cmds.insert_resource(State::new());
 
+    // Needed to draw the UI
+    cmds.spawn(Camera2d);
+
     Ok(())
 }
 

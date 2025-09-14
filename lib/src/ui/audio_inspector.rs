@@ -4,17 +4,21 @@ use crate::prelude::*;
 use crate::ui::widgets::LevelMeter;
 
 #[derive(Component)]
-struct AudioUi;
+struct AudioInspector;
 
 pub fn setup(mut cmds: Commands) {
     // Assumes AudioPeakHold + AudioVU update elsewhere.
-    cmds.spawn((AudioUi, AudioPeakHold::default(), AudioVU::default()));
+    cmds.spawn((AudioInspector, AudioPeakHold::default(), AudioVU::default()));
 }
 
 pub fn draw(ui: &mut egui::Ui, world: &mut World) {
-    let vu = world.query_filtered::<&AudioVU, With<AudioUi>>().single(world).unwrap().value();
+    let vu = world
+        .query_filtered::<&AudioVU, With<AudioInspector>>()
+        .single(world)
+        .unwrap()
+        .value();
     let peak_hold = world
-        .query_filtered::<&AudioPeakHold, With<AudioUi>>()
+        .query_filtered::<&AudioPeakHold, With<AudioInspector>>()
         .single(world)
         .unwrap()
         .value();

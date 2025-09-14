@@ -38,7 +38,7 @@ impl Default for Ui {
             selected: SelectedEntities::default(),
             inspector: inspector::Inspector::Entities,
             viewport: egui::Rect::NOTHING,
-            visible: true,
+            visible: false,
         }
     }
 }
@@ -62,7 +62,7 @@ impl egui_dock::TabViewer for TabViewer<'_> {
             Tab::Viewport => ui.viewport = egui.clip_rect(),
             Tab::Entities  => inspector::draw_entities(egui, world, &types, ui),
             Tab::Inspector => inspector::draw(egui, world, &types, ui),
-            Tab::Audio     => audio::draw(egui, world),
+            Tab::Audio     => audio_inspector::draw(egui, world),
             Tab::Resources => inspector::draw_resources(egui, &types, ui),
         }
     }

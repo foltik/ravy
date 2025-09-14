@@ -12,6 +12,7 @@ pub mod midi;
 mod num;
 mod osc;
 mod plugin;
+mod tap;
 pub mod ui;
 
 /// A set of common traits and types. Bring in scope with `use prelude::*`.
@@ -30,6 +31,7 @@ pub mod prelude {
     pub use crate::num::{Ease, *};
     pub use crate::osc::*;
     pub use crate::plugin::RavyPlugin;
+    pub use crate::tap::{Tap, TapMut};
     pub use crate::ui::{self, Ui};
 
     // A fake FloatExt trait to shadow bevy's which has a conflicting lerp() method

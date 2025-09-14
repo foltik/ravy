@@ -15,17 +15,23 @@ struct Args {
 fn main() -> Result {
     let args: Args = argh::from_env();
     App::new()
+        .add_plugins(RavyPlugin { module: module_path!(), debug: args.debug, trace: args.trace })
+        .add_systems(Startup, setup)
+        .add_systems(Update, (on_ctrl, render_ctrl, tick, render_lights).chain())
+        .add_systems(EguiPrimaryContextPass, draw_ui)
         .insert_resource(Midi::new("Launch Control XL", LaunchControlXL::default()))
         .insert_resource(E131::new("10.16.4.1")?)
         .insert_resource(State::default().tap_mut(|s| {
             s.dmx.resize(256, 0);
             s.device.resize(1, 0);
         }))
-        .add_plugins(RavyPlugin { module: module_path!(), debug: args.debug, trace: args.trace })
-        .add_systems(Update, (on_ctrl, render_ctrl, tick, render_lights).chain())
-        .add_systems(EguiPrimaryContextPass, draw_ui)
         .run();
     Ok(())
+}
+
+fn setup(mut commands: Commands) {
+    // Needed to draw the UI
+    commands.spawn(Camera2d);
 }
 
 ///////////////////////// STATE /////////////////////////
@@ -141,7 +147,7 @@ pub fn render_lights(mut s: ResMut<State>, mut e131: ResMut<E131>) {
     let device_channels = s.device_channel..(s.device_channel + s.device.len());
     s.dmx[device_channels].copy_from_slice(&device);
 
-    // e131.send(&s.device);
+    e131.send(&s.device);
 }
 
 ///////////////////////// CTRL INPUT /////////////////////////
@@ -272,12 +278,10 @@ pub fn render_ctrl(s: Res<State>, mut ctrl: ResMut<Midi<LaunchControlXL>>) {
 }
 
 pub fn draw_ui(mut ctxs: EguiContexts, s: Res<State>) -> Result {
-    eprintln!("draw_ui");
     let ctx = ctxs.ctx_mut()?;
 
     egui::CentralPanel::default().show(ctx, |ui| {
         let size = ui.available_size();
-        info!("size={size:?}");
         let (_resp, painter) = ui.allocate_painter(size, egui::Sense::hover());
 
         let p = &painter;
