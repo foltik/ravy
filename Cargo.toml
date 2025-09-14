@@ -25,6 +25,7 @@ cpal = "0.16"
 rtrb = "0.3"
 sacn = { git = "https://github.com/RustLight/sacn" }
 rand = "0.8"
+itertools = "0.14"
 
 bevy_egui = "0.36"
 bevy-inspector-egui = "0.33"

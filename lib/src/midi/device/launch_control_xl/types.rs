@@ -43,7 +43,7 @@ impl Brightness {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum State {
+pub enum ButtonState {
     Momentary,
     Toggle,
 }

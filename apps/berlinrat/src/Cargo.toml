@@ -1,15 +1,13 @@
 [package]
-name = "berlinrat"
+name = "example"
 version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "berlinrat"
-path = "src/berlinrat.rs"
+name = "example"
+path = "src/example.rs"
 
 [dependencies]
 lib.workspace = true
 bevy.workspace = true
 argh.workspace = true
-rand.workspace = true
-itertools.workspace = true
