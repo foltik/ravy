@@ -3,9 +3,11 @@ use crate::prelude::*;
 mod audio;
 mod inspector;
 mod ui;
+mod utils;
 pub mod widgets;
 
 pub use ui::Ui;
+pub use utils::*;
 
 pub struct UiPlugin;
 impl Plugin for UiPlugin {
