@@ -6,7 +6,6 @@ use bevy::window::Monitor;
 use bevy_inspector_egui::bevy_inspector;
 use bevy_inspector_egui::bevy_inspector::hierarchy::Hierarchy;
 
-use crate::bevy::ui::Ui;
 use crate::prelude::*;
 
 #[derive(Debug, Eq, PartialEq)]

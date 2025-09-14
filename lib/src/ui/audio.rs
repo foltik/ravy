@@ -1,7 +1,7 @@
 use bevy_egui::egui::{self, RichText};
 
-use crate::bevy::widgets::LevelMeter;
 use crate::prelude::*;
+use crate::ui::widgets::LevelMeter;
 
 #[derive(Component)]
 struct AudioUi;
@@ -57,12 +57,17 @@ pub fn draw(ui: &mut egui::Ui, world: &mut World) {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Input").weak());
-                    widgets::dropdown_opt(ui, "audio_input", &mut audio.input, Audio::available_inputs());
+                    ui::widgets::dropdown_opt(ui, "audio_input", &mut audio.input, Audio::available_inputs());
                 });
 
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Output").weak());
-                    widgets::dropdown_opt(ui, "audio_output", &mut audio.output, Audio::available_outputs());
+                    ui::widgets::dropdown_opt(
+                        ui,
+                        "audio_output",
+                        &mut audio.output,
+                        Audio::available_outputs(),
+                    );
                 });
 
                 ui.add_space(2.0);
