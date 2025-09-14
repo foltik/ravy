@@ -21,6 +21,7 @@ const DEFAULT_DMX_UNIVERSE: u16 = 1;
 /// platforms including microcontrollers.
 ///
 /// See <https://wiki.openlighting.org/index.php/E1.31>
+#[derive(Resource)]
 pub struct E131 {
     src: SacnSource,
     dest: IpAddr,

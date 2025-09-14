@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use std::sync::{Mutex, mpsc};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -12,10 +12,11 @@ pub mod device;
 pub use device::MidiDevice;
 
 /// A MIDI device.
+#[derive(Resource)]
 pub enum Midi<D: MidiDevice> {
     Connected {
-        in_rx: mpsc::Receiver<D::Input>,
-        out_tx: mpsc::Sender<D::Output>,
+        in_rx: Mutex<mpsc::Receiver<D::Input>>,
+        out_tx: Mutex<mpsc::Sender<D::Output>>,
 
         _raw: MidiRaw,
         _thread: JoinHandle<()>,
@@ -53,6 +54,9 @@ impl<D: MidiDevice> Midi<D> {
                     }
                 });
 
+                let in_rx = Mutex::new(in_rx);
+                let out_tx = Mutex::new(out_tx);
+
                 let mut this = Self::Connected { in_rx, out_tx, _raw, _thread };
                 D::init(&mut this);
                 this
@@ -69,7 +73,7 @@ impl<D: MidiDevice> Midi<D> {
         match self {
             Midi::Connected { in_rx, .. } => {
                 let mut msgs = vec![];
-                while let Ok(event) = in_rx.try_recv() {
+                while let Ok(event) = in_rx.lock().unwrap().try_recv() {
                     msgs.push(event);
                 }
                 msgs
@@ -81,7 +85,7 @@ impl<D: MidiDevice> Midi<D> {
     /// Send a MIDI event.
     pub fn send(&mut self, output: D::Output) {
         match self {
-            Midi::Connected { out_tx, .. } => out_tx.send(output).unwrap(),
+            Midi::Connected { out_tx, .. } => out_tx.lock().unwrap().send(output).unwrap(),
             Midi::Disconnected => {}
         }
     }

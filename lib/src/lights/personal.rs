@@ -7,7 +7,7 @@ use crate::dmx::device::strobe_rgb_35w::Strobe;
 use crate::prelude::*;
 
 /// My personal collection of lights.
-#[derive(Default)]
+#[derive(Resource, Default)]
 pub struct Personal {
     pub pars: [Par; 10],
     pub beams: [Beam; 4],
@@ -49,22 +49,22 @@ impl Personal {
     }
 
     // Iterate through the lights, with additional index and fr (from 0 to 1) parameters.
-    pub fn for_each_par(&mut self, f: impl FnMut(&mut Par, usize, f64)) {
+    pub fn for_each_par(&mut self, f: impl FnMut(&mut Par, usize, f32)) {
         Self::for_each(&mut self.pars, f);
     }
-    pub fn for_each_beam(&mut self, f: impl FnMut(&mut Beam, usize, f64)) {
+    pub fn for_each_beam(&mut self, f: impl FnMut(&mut Beam, usize, f32)) {
         Self::for_each(&mut self.beams, f);
     }
-    pub fn for_each_bar(&mut self, f: impl FnMut(&mut Bar, usize, f64)) {
+    pub fn for_each_bar(&mut self, f: impl FnMut(&mut Bar, usize, f32)) {
         Self::for_each(&mut self.bars, f);
     }
-    pub fn for_each_spider(&mut self, f: impl FnMut(&mut Spider, usize, f64)) {
+    pub fn for_each_spider(&mut self, f: impl FnMut(&mut Spider, usize, f32)) {
         Self::for_each(&mut self.spiders, f);
     }
 
-    fn for_each<T>(slice: &mut [T], mut f: impl FnMut(&mut T, usize, f64)) {
+    fn for_each<T>(slice: &mut [T], mut f: impl FnMut(&mut T, usize, f32)) {
         let n = slice.len();
-        slice.iter_mut().enumerate().for_each(|(i, t)| f(t, i, i as f64 / n as f64));
+        slice.iter_mut().enumerate().for_each(|(i, t)| f(t, i, i as f32 / n as f32));
     }
 }
 
