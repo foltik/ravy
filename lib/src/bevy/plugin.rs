@@ -21,17 +21,16 @@ impl Plugin for RavyPlugin {
             filter: format!("{deps_log_level},{}={app_log_level}", self.module),
             ..default()
         }))
-        .add_plugins(bevy_egui::EguiPlugin::default())
-        .add_plugins(super::debug::DebugPlugin)
         .add_plugins(super::gltf::GltfScenePlugin)
         .add_plugins(super::audio::AudioPlugin)
+        .add_plugins(super::ui::UiPlugin)
         .add_systems(PreUpdate, hotkeys);
     }
 }
 
 pub fn hotkeys(
     keys: Res<ButtonInput<KeyCode>>,
-    mut debug: ResMut<Debug>,
+    mut ui: ResMut<Ui>,
     mut window: Single<&mut Window>,
     mut exit: EventWriter<AppExit>,
 ) {
@@ -46,7 +45,7 @@ pub fn hotkeys(
         };
     }
 
-    if keys.just_pressed(KeyCode::KeyD) {
-        debug.ui = !debug.ui;
+    if keys.just_pressed(KeyCode::Tab) {
+        ui.visible = !ui.visible;
     }
 }

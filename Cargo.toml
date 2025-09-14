@@ -27,6 +27,8 @@ sacn = { git = "https://github.com/RustLight/sacn" }
 rand = "0.8"
 
 bevy_egui = "0.36"
+bevy-inspector-egui = "0.33"
+egui_dock = "0.17"
 
 [workspace.dependencies.bevy]
 version = "0.16"

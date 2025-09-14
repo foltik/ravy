@@ -1,4 +1,5 @@
 mod byte;
+mod db;
 mod ease;
 mod ema;
 mod interp;
@@ -6,6 +7,7 @@ mod pd;
 mod range;
 
 pub use byte::Byte;
+pub use db::*;
 pub use ease::Ease;
 pub use ema::Ema;
 pub use interp::Interp;

@@ -108,9 +108,12 @@ impl GltfSceneBuilder {
         cmds: &mut Commands,
         assets: &AssetServer,
     ) -> Entity {
+        let path = path.into();
+        let name = Name::new(path.to_string());
         let handle = assets.load::<Gltf>(path);
+
         let loader = GltfSceneLoader { handle, builder: self };
-        cmds.spawn(loader).id()
+        cmds.spawn((loader, name)).id()
     }
 }
 
