@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, LazyLock};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -14,32 +14,14 @@ const CHANNELS: u16 = 2;
 const BUFFER_SZ: u32 = 64;
 const SAMPLE_RATE: u32 = 48_000;
 
-const PEAK_DECAY_HZ: f32 = 0.1;
-const RMS_ATTACK_HZ: f32 = 0.05;
-const RMS_DECAY_HZ: f32 = 0.05;
-
-/// System to update Audio smoothed rms/peak
-pub fn audio_emas(mut audio: ResMut<Audio>, time: Res<Time>) {
-    let dt = time.elapsed_secs().clamp(1.0 / 480.0, 1.0);
-
-    let rms = f32::from_bits(audio.rms.load(Ordering::Relaxed));
-    audio.rms_ema.update(dt, rms);
-
-    let peak = f32::from_bits(audio.peak.load(Ordering::Relaxed));
-    if peak > *audio.peak_ema {
-        audio.peak_ema.force(peak);
-    } else {
-        audio.peak_ema.update(dt, peak);
-    }
-}
-
 /// System to starts/stops AudioStream when the Audio settings change
-pub fn audio_reload(mut audio: ResMut<Audio>) {
+pub fn reload(mut audio: ResMut<Audio>) {
     // Only run if audio state has changed
-    if !audio.dirty {
+    if audio.input == audio.curr_input && audio.output == audio.curr_output {
         return;
     }
-    audio.dirty = false;
+    audio.curr_input = audio.input.clone();
+    audio.curr_output = audio.output.clone();
 
     // Cleanup
     audio.rms.store(0.0f32.to_bits(), Ordering::Relaxed);
@@ -55,65 +37,46 @@ pub fn audio_reload(mut audio: ResMut<Audio>) {
     }
 }
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct Audio {
     rms: Arc<AtomicU32>,
     peak: Arc<AtomicU32>,
-    rms_ema: Ema,
-    peak_ema: Ema,
 
     pub input: Option<String>,
     pub output: Option<String>,
-    inputs: Vec<String>,
-    outputs: Vec<String>,
+    curr_input: Option<String>,
+    curr_output: Option<String>,
 
-    dirty: bool,
     stream: Option<AudioStream>,
 }
 
-#[rustfmt::skip]
 impl Audio {
     /// Audio samples RMS from 0.0 to 1.0
-    pub fn rms(&self) -> f32 { *self.rms_ema }
+    pub fn rms(&self) -> f32 {
+        f32::from_bits(self.rms.load(Ordering::Relaxed))
+    }
     /// Audio samples peak from 0.0 to 1.0
-    pub fn peak(&self) -> f32 { *self.peak_ema }
-
-    pub fn available_inputs(&self) -> &[String] { &self.inputs }
-    pub fn available_outputs(&self) -> &[String] { &self.outputs }
-    pub fn set_input(&mut self, device: Option<String>) {
-        self.dirty |= device != self.input;
-        self.input = device;
+    pub fn peak(&self) -> f32 {
+        f32::from_bits(self.peak.load(Ordering::Relaxed))
     }
-    pub fn set_output(&mut self, device: Option<String>) {
-        self.dirty |= device != self.output;
-        self.output = device;
+
+    pub fn available_inputs() -> &'static [String] {
+        static INPUTS: LazyLock<Vec<String>> = LazyLock::new(|| {
+            cpal::default_host()
+                .input_devices()
+                .map(|it| it.filter_map(|d| d.name().ok()).collect())
+                .unwrap_or_default()
+        });
+        &INPUTS
     }
-}
-
-impl Default for Audio {
-    fn default() -> Self {
-        let host = cpal::default_host();
-        let inputs = host
-            .input_devices()
-            .map(|it| it.filter_map(|d| d.name().ok()).collect())
-            .unwrap_or_default();
-        let outputs = host
-            .output_devices()
-            .map(|it| it.filter_map(|d| d.name().ok()).collect())
-            .unwrap_or_default();
-
-        Self {
-            rms: Arc::new(AtomicU32::new(0.0f32.to_bits())),
-            peak: Arc::new(AtomicU32::new(0.0f32.to_bits())),
-            rms_ema: Ema::new_asymmetric(RMS_ATTACK_HZ, RMS_DECAY_HZ),
-            peak_ema: Ema::new(PEAK_DECAY_HZ),
-            input: None,
-            output: None,
-            inputs,
-            outputs,
-            dirty: false,
-            stream: None,
-        }
+    pub fn available_outputs() -> &'static [String] {
+        static OUTPUTS: LazyLock<Vec<String>> = LazyLock::new(|| {
+            cpal::default_host()
+                .output_devices()
+                .map(|it| it.filter_map(|d| d.name().ok()).collect())
+                .unwrap_or_default()
+        });
+        &OUTPUTS
     }
 }
 

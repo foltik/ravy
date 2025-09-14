@@ -1,17 +1,18 @@
 use crate::prelude::*;
 
 mod audio;
-mod ui;
+mod peak;
+mod vu;
 
 pub use audio::Audio;
+pub use peak::AudioPeakHold;
+pub use vu::AudioVU;
 
 pub struct AudioPlugin;
 impl Plugin for AudioPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<audio::Audio>()
-            .init_resource::<ui::AudioMeter>()
-            .add_systems(EguiPrimaryContextPass, ui::audio_ui)
-            .add_systems(PreUpdate, audio::audio_emas)
-            .add_systems(PostUpdate, audio::audio_reload);
+            .add_systems(PreUpdate, (peak::update, vu::update))
+            .add_systems(PostUpdate, audio::reload);
     }
 }
