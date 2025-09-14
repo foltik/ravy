@@ -1,0 +1,13 @@
+[package]
+name = "dmxplorer"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "dmxplorer"
+path = "src/dmxplorer.rs"
+
+[dependencies]
+lib.workspace = true
+bevy.workspace = true
+argh.workspace = true
