@@ -1,0 +1,14 @@
+[package]
+name = "dmxsim"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "dmxsim"
+path = "src/dmxsim.rs"
+
+[dependencies]
+lib.workspace = true
+bevy.workspace = true
+argh.workspace = true
+egui_plot.workspace = true
