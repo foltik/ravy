@@ -160,7 +160,31 @@ fn load_gltfs_post(
         insert_fn(&mut cmds.entity(scene));
     }
 
-    // Add components to named child entities in the scene
+    for node in children.iter_descendants(scene) {
+        let Ok(name) = names.get(node) else {
+            continue;
+        };
+        let name: &str = &*name;
+
+        for (target, insert_fn) in &loader.builder.insert_on_fns {
+            if name == target {
+                insert_fn(&mut cmds.entity(node));
+            }
+        }
+
+        for (match_fn, insert_fn) in &loader.builder.insert_on_matching_fns {
+            if match_fn(name) {
+                insert_fn(&mut cmds.entity(node));
+            }
+        }
+
+        // XXX: we don't detect if an insert_on_fn is never called, i.e. the node doesn't exist.
+        // it would be nice to:
+        //
+        //   let names = gltf.named_nodes.keys().collect::<Vec<_>>();
+        //   panic!("no such entity {name:?}. available: {names:?}")
+    }
+
     for (name, insert_fn) in &loader.builder.insert_on_fns {
         let node_handle = gltf.named_nodes.get(name.as_str()).unwrap_or_else(|| {
             let names = gltf.named_nodes.keys().collect::<Vec<_>>();
