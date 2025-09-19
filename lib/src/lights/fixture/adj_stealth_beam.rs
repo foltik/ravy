@@ -1,13 +1,13 @@
 //! Eliminator Stealth Beam
 //!
-//! https://www.adj.com/cdn/shop/files/Stealth_Beam__1st_Ed.pdf
+//! https://www.adj.com/products/stealth-beam
 
 use crate::lights::MovingHeadDevice;
 use crate::prelude::*;
 use crate::sim::motor::MotorDynamics;
 
 #[derive(Clone, Copy, Debug, Component)]
-pub struct EliminatorStealthBeam {
+pub struct StealthBeam {
     pub pitch: f32,
     pub yaw: f32,
     pub color: Rgbw,
@@ -15,9 +15,9 @@ pub struct EliminatorStealthBeam {
     pub strobe: f32,
 }
 
-impl MovingHeadDevice for EliminatorStealthBeam {
+impl MovingHeadDevice for StealthBeam {
     fn name(&self) -> &'static str {
-        "Eliminator Stealth Beam"
+        "ADJ Stealth Beam"
     }
     fn intensity(&self) -> f32 {
         10_000_000.0
@@ -29,13 +29,10 @@ impl MovingHeadDevice for EliminatorStealthBeam {
         5.5
     }
     fn model(&self) -> &'static [u8] {
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/assets/fixtures/EliminatorStealthBeam.glb"
-        ))
+        include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/fixtures/ADJ_Stealth_Beam.glb"))
     }
     fn model_path(&self) -> &'static str {
-        "fixtures/EliminatorStealthBeam.glb"
+        "fixtures/ADJ_Stealth_Beam.glb"
     }
     fn pitch_dynamics(&self) -> MotorDynamics {
         MotorDynamics {
@@ -71,7 +68,7 @@ impl MovingHeadDevice for EliminatorStealthBeam {
     }
 }
 
-impl DmxDevice for EliminatorStealthBeam {
+impl DmxDevice for StealthBeam {
     fn channels(&self) -> usize {
         16
     }
@@ -93,7 +90,7 @@ impl DmxDevice for EliminatorStealthBeam {
     }
 }
 
-impl Default for EliminatorStealthBeam {
+impl Default for StealthBeam {
     fn default() -> Self {
         Self { pitch: 0.5, yaw: 0.0, strobe: 0.0, color: Rgbw::BLACK, alpha: 1.0 }
     }

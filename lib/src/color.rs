@@ -16,7 +16,7 @@ impl Rgb {
 
     /// CIE luminance (assuming linear sRGB)
     pub fn luminance(&self) -> f32 {
-        (0.2126 * self.0) + (0.7152 * self.1) + (0.0722 * self.2)
+        (0.333 * self.0) + (0.333 * self.1) + (0.333 * self.2)
     }
 }
 
