@@ -32,7 +32,7 @@ pub fn setup_pre(
         cmds.entity(entity).remove::<GltfScene>();
         cmds.entity(entity).remove::<SceneRoot>();
         for child in children.iter_descendants(entity) {
-            cmds.entity(child).despawn();
+            cmds.entity(child).try_despawn();
         }
 
         cmds.entity(entity).insert(SpotSetup);
