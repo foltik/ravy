@@ -84,10 +84,10 @@ impl Motor {
         match self.motion {
             Some(Motion::Linear { θ_start, θ_end }) => {
                 // Calculate the constant velocity to use
-                let orig_dist_abs = (θ_end - θ_start).abs();
+                let orig_dist = θ_end - θ_start;
                 self.j = 0.0;
                 self.a = 0.0;
-                self.v = (linear_gain * orig_dist_abs).clamp(-v_max, v_max);
+                self.v = (linear_gain * orig_dist).clamp(-v_max, v_max);
 
                 // Integrate angle
                 let dist_abs = (θ_end - self.θ).abs();
