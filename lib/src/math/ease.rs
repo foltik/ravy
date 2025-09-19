@@ -1,4 +1,4 @@
-use crate::num::TAU_4;
+use crate::math::TAU_4;
 
 /// Easing functions for floats in `0.0..1.0`, mirroring those from CSS.
 ///
@@ -85,18 +85,10 @@ impl Ease for f32 {
         }
     }
     fn in_exp(self) -> f32 {
-        if self == 0. {
-            0.
-        } else {
-            (10. * (self - 1.)).exp2()
-        }
+        if self == 0. { 0. } else { (10. * (self - 1.)).exp2() }
     }
     fn out_exp(self) -> f32 {
-        if self == 1. {
-            1.
-        } else {
-            1. - (-10. * self).exp2()
-        }
+        if self == 1. { 1. } else { 1. - (-10. * self).exp2() }
     }
     fn inout_exp(self) -> f32 {
         if self == 1. {

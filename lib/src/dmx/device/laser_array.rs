@@ -4,7 +4,7 @@
 
 use crate::color::Rgb;
 use crate::dmx::DmxDevice;
-use crate::num::Interp;
+use crate::math::Interp;
 
 #[derive(Clone, Copy, Debug)]
 pub struct LaserArray {

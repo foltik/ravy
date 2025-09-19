@@ -1,9 +1,9 @@
-use crate::color::Rgb;
-use crate::midi::Midi;
-use crate::num::{Byte, Interp};
 use std::collections::HashMap;
 
 use super::MidiDevice;
+use crate::color::Rgb;
+use crate::math::{Byte, Interp};
+use crate::midi::Midi;
 
 pub mod types;
 use types::*;
@@ -18,10 +18,7 @@ pub struct LaunchpadX {
 
 impl Default for LaunchpadX {
     fn default() -> Self {
-        Self {
-            mode: Mode::default(),
-            cache: HashMap::new(),
-        }
+        Self { mode: Mode::default(), cache: HashMap::new() }
     }
 }
 
@@ -175,7 +172,7 @@ impl MidiDevice for LaunchpadX {
             Output::Clear => {
                 // Clear operations reset the cache for all positions
                 self.cache.clear();
-                
+
                 let mut data = Vec::with_capacity(8 + (81 * 3));
                 data.extend_from_slice(&[0xF0, 0x0, 0x20, 0x29, 0x2, 0xC, 0x3]);
                 for i in 0..81 {
@@ -191,7 +188,7 @@ impl MidiDevice for LaunchpadX {
                         self.cache.remove(&Coord(i, j).byte());
                     }
                 }
-                
+
                 let mut data = Vec::with_capacity(8 + (64 * 4));
                 data.extend_from_slice(&[0xF0, 0x0, 0x20, 0x29, 0x2, 0xC, 0x3]);
                 for i in 0..8 {
@@ -201,7 +198,13 @@ impl MidiDevice for LaunchpadX {
                                 data.extend_from_slice(&[0x0, Coord(i, j).byte(), col.byte()]);
                             }
                             Color::Rgb(r, g, b) => {
-                                data.extend_from_slice(&[0x3, Coord(i, j).byte(), r.midi_byte(), g.midi_byte(), b.midi_byte()]);
+                                data.extend_from_slice(&[
+                                    0x3,
+                                    Coord(i, j).byte(),
+                                    r.midi_byte(),
+                                    g.midi_byte(),
+                                    b.midi_byte(),
+                                ]);
                             }
                         }
                     }
@@ -214,7 +217,7 @@ impl MidiDevice for LaunchpadX {
                 for (pos, _) in colorspecs {
                     self.cache.remove(&pos.byte());
                 }
-                
+
                 let mut data = Vec::with_capacity(8 + (81 * 4));
                 data.extend_from_slice(&[0xF0, 0x0, 0x20, 0x29, 0x2, 0xC, 0x3]);
                 for (pos, color) in colorspecs {
@@ -223,7 +226,13 @@ impl MidiDevice for LaunchpadX {
                             data.extend_from_slice(&[0x0, pos.byte(), col.byte()]);
                         }
                         Color::Rgb(r, g, b) => {
-                            data.extend_from_slice(&[0x3, pos.byte(), r.midi_byte(), g.midi_byte(), b.midi_byte()]);
+                            data.extend_from_slice(&[
+                                0x3,
+                                pos.byte(),
+                                r.midi_byte(),
+                                g.midi_byte(),
+                                b.midi_byte(),
+                            ]);
                         }
                     }
                 }
@@ -275,7 +284,7 @@ impl MidiDevice for LaunchpadX {
         // Check if we can cache this output and if it's changed
         if let Some((pos_byte, output_type)) = extract_cache_key(&output) {
             let cache_key = (output_type, midi_output.clone());
-            
+
             // Check if this exact output was already sent
             if let Some(cached) = self.cache.get(&pos_byte) {
                 if cached == &cache_key {
@@ -283,7 +292,7 @@ impl MidiDevice for LaunchpadX {
                     return Vec::new();
                 }
             }
-            
+
             // Update cache with new state
             self.cache.insert(pos_byte, cache_key);
         }

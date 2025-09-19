@@ -3,7 +3,7 @@
 //! <TODO: amazon link>
 
 use crate::dmx::DmxDevice;
-use crate::num::Interp;
+use crate::math::Interp;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Gobo {

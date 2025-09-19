@@ -4,7 +4,7 @@
 
 use crate::color::Rgbw;
 use crate::dmx::DmxDevice;
-use crate::num::Interp;
+use crate::math::Interp;
 
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Bar {

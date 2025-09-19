@@ -1,4 +1,4 @@
-use crate::num::{Range, TAU_2};
+use crate::math::{Range, TAU_2};
 
 pub trait Interp: Sized {
     /// 0 below the threshold and 1 above it
@@ -71,11 +71,7 @@ pub trait Interp: Sized {
 
 impl Interp for f32 {
     fn step(self, threshold: f32) -> f32 {
-        if self < threshold {
-            0.0
-        } else {
-            1.0
-        }
+        if self < threshold { 0.0 } else { 1.0 }
     }
     fn bstep(self, threshold: f32) -> bool {
         self.step(threshold) == 1.0
