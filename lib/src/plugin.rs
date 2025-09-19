@@ -1,3 +1,5 @@
+use bevy::asset::io::memory::{Dir, MemoryAssetReader};
+use bevy::asset::io::{AssetSource, AssetSourceId};
 use bevy::window::WindowMode;
 
 use crate::prelude::*;
@@ -17,6 +19,14 @@ impl Plugin for RavyPlugin {
             (_, _)    => ("info",  "warn"),  // default
         };
 
+        // XXX: fix the data flow
+        let models = Dir::default();
+        let reader = MemoryAssetReader { root: models.clone() };
+        app.register_asset_source(
+            AssetSourceId::from_static("memory"),
+            AssetSource::build().with_reader(move || Box::new(reader.clone())),
+        );
+
         app.add_plugins(DefaultPlugins.set(bevy::log::LogPlugin {
             filter: format!("{deps_log_level},{}={app_log_level}", self.module),
             ..default()
@@ -24,6 +34,8 @@ impl Plugin for RavyPlugin {
         .add_plugins(super::gltf::GltfScenePlugin)
         .add_plugins(super::audio::AudioPlugin)
         .add_plugins(super::ui::UiPlugin)
+        .add_plugins(super::sim::SimPlugin)
+        .add_plugins(super::lights::LightsPlugin { models })
         .add_systems(PreUpdate, hotkeys);
     }
 }

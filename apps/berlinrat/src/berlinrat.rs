@@ -4,7 +4,7 @@ use itertools::Itertools;
 use lib::dmx::device::beam_rgbw_60w::Beam;
 use lib::dmx::device::laser_scan_30w::{Laser, LaserColor, LaserPattern};
 use lib::dmx::device::spider_rgbw_8x10w::Spider;
-use lib::lights::personal::Personal as Lights;
+use lib::lights::layout::Personal as Lights;
 use lib::midi::device::launch_control_xl::{self, LaunchControlXL};
 use lib::midi::device::launchpad_x::{self, LaunchpadX};
 use lib::prelude::*;

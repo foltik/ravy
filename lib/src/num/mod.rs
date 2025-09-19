@@ -1,3 +1,4 @@
+mod axis;
 mod byte;
 mod db;
 mod ease;
@@ -6,6 +7,7 @@ mod interp;
 mod pd;
 mod range;
 
+pub use axis::Axis;
 pub use byte::Byte;
 pub use db::*;
 pub use ease::Ease;

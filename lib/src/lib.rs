@@ -1,6 +1,7 @@
 #![allow(incomplete_features)]
 #![allow(clippy::module_inception)]
 #![allow(clippy::eq_op)]
+#![allow(mixed_script_confusables)]
 
 mod audio;
 mod color;
@@ -12,6 +13,7 @@ pub mod midi;
 mod num;
 mod osc;
 mod plugin;
+pub mod sim;
 mod tap;
 pub mod ui;
 
@@ -21,6 +23,7 @@ pub mod prelude {
     pub use bevy::color::palettes::css::*;
     pub use bevy::prelude::*;
     pub use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
+    pub use bevy_trait_query::{One, RegisterExt};
 
     pub use crate::audio::*;
     pub use crate::color::*;
@@ -28,7 +31,7 @@ pub mod prelude {
     pub use crate::e131::E131;
     pub use crate::gltf::*;
     pub use crate::midi::{Midi, MidiDevice};
-    pub use crate::num::{Ease, *};
+    pub use crate::num::{Axis, Ease, *};
     pub use crate::osc::*;
     pub use crate::plugin::RavyPlugin;
     pub use crate::tap::{Tap, TapMut};
