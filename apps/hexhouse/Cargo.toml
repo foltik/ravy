@@ -1,0 +1,13 @@
+[package]
+name = "hexhouse"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "hexhouse"
+path = "src/hexhouse.rs"
+
+[dependencies]
+lib.workspace = true
+bevy.workspace = true
+argh.workspace = true
