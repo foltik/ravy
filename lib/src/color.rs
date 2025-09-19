@@ -13,6 +13,11 @@ impl Rgb {
 
         Self(r, g, b)
     }
+
+    /// CIE luminance (assuming linear sRGB)
+    pub fn luminance(&self) -> f32 {
+        (0.2126 * self.0) + (0.7152 * self.1) + (0.0722 * self.2)
+    }
 }
 
 /// An (r, g, b, w) color.

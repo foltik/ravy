@@ -19,8 +19,14 @@ impl MovingHeadDevice for EliminatorStealthBeam {
     fn name(&self) -> &'static str {
         "Eliminator Stealth Beam"
     }
-    fn watts(&self) -> f32 {
-        60.0
+    fn intensity(&self) -> f32 {
+        10_000_000.0
+    }
+    fn range(&self) -> f32 {
+        10.0
+    }
+    fn beam_angle(&self) -> f32 {
+        5.5
     }
     fn model(&self) -> &'static [u8] {
         include_bytes!(concat!(

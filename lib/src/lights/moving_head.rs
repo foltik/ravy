@@ -7,7 +7,10 @@ use crate::sim::motor::{Motor, MotorDynamics};
 #[bevy_trait_query::queryable]
 pub trait MovingHeadDevice: DmxDevice {
     fn name(&self) -> &'static str;
-    fn watts(&self) -> f32;
+    fn intensity(&self) -> f32;
+    fn range(&self) -> f32;
+    /// Beam angle angle in degrees.
+    fn beam_angle(&self) -> f32;
 
     /// 3d model in .glb format.
     fn model(&self) -> &'static [u8];
@@ -52,9 +55,10 @@ pub fn setup_pre(
 
 #[derive(Component)]
 pub struct MovingHead {
-    pitch_motor: Entity,
-    yaw_motor: Entity,
+    head: Entity,
+    yoke: Entity,
     material: Handle<StandardMaterial>,
+    light: Entity,
 }
 
 pub fn setup_post(
@@ -69,47 +73,62 @@ pub fn setup_post(
     gltf_materials: Query<&GltfMaterialName>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for (entity, fixture, _scene) in fixtures {
-        let mut pitch_motor = None;
-        let mut yaw_motor = None;
+    for (entity, device, _scene) in fixtures {
+        let mut head = None;
+        let mut yoke = None;
         let mut material = None;
+        let mut light = None;
 
         for child in children.iter_descendants(entity) {
             if names.get(child).is_ok_and(|name| name.starts_with("Head")) {
-                let id = cmds
-                    .entity(child)
-                    .insert(Motor::new(fixture.pitch_axis(), fixture.pitch_dynamics()))
+                head = Some(child);
+
+                cmds.entity(child)
+                    .insert((Motor::new(device.pitch_axis(), device.pitch_dynamics()),));
+
+                let spot = cmds
+                    .spawn((
+                        SpotLight {
+                            color: Color::WHITE,
+                            intensity: device.intensity(),
+                            inner_angle: 0.0,
+                            outer_angle: device.beam_angle().to_radians(),
+                            range: device.range(),
+                            radius: 0.0,
+                            shadows_enabled: false,
+                            ..Default::default()
+                        },
+                        Transform::from_rotation(Quat::from_rotation_y(-TAU / 4.0)),
+                    ))
                     .id();
-                pitch_motor = Some(id);
+                cmds.entity(child).add_child(spot);
+                light = Some(spot);
             }
 
             if names.get(child).is_ok_and(|name| name.starts_with("Yoke")) {
-                let id = cmds
-                    .entity(child)
-                    .insert(Motor::new(fixture.yaw_axis(), fixture.yaw_dynamics()))
-                    .id();
-                yaw_motor = Some(id);
+                yoke = Some(child);
+
+                cmds.entity(child).insert(Motor::new(device.yaw_axis(), device.yaw_dynamics()));
             }
 
             if gltf_materials.get(child).is_ok_and(|name| name.0.starts_with("Beam")) {
                 let beam = materials.add(StandardMaterial {
-                    base_color: Color::srgba(1.0, 1.0, 1.0, 0.15),
+                    base_color: Color::srgba(1.0, 1.0, 1.0, 0.04),
                     alpha_mode: AlphaMode::Blend,
                     emissive: Color::linear_rgba(1.0, 1.0, 1.0, 1.0).into(),
-                    // perceptual_roughness: 0.2,
                     ..Default::default()
                 });
+                material = Some(beam.clone());
 
-                cmds.entity(child).insert(MeshMaterial3d(beam.clone()));
-
-                material = Some(beam);
+                cmds.entity(child).insert(MeshMaterial3d(beam));
             }
         }
 
         cmds.entity(entity).insert(MovingHead {
-            pitch_motor: pitch_motor.unwrap(),
-            yaw_motor: yaw_motor.unwrap(),
+            head: head.unwrap(),
+            yoke: yoke.unwrap(),
             material: material.unwrap(),
+            light: light.unwrap(),
         });
     }
 }
@@ -117,15 +136,22 @@ pub fn setup_post(
 pub fn update(
     fixtures: Query<(&MovingHead, One<&dyn MovingHeadDevice>)>,
     mut motors: Query<&mut Motor>,
+    mut lights: Query<&mut SpotLight>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for (fixture, device) in fixtures {
-        motors.get_mut(fixture.pitch_motor).unwrap().rotate(device.pitch());
-        motors.get_mut(fixture.yaw_motor).unwrap().rotate(device.yaw());
+        motors.get_mut(fixture.head).unwrap().rotate(device.pitch());
+        motors.get_mut(fixture.yoke).unwrap().rotate(device.yaw());
 
-        let Rgbw(r, g, b, w) = device.color();
-        let s = 10.0; // emissive strength
-        materials.get_mut(&fixture.material).unwrap().emissive =
-            Color::linear_rgba(s * (r + w).min(1.0), s * (g + w).min(1.0), s * (b + w).min(1.0), 0.15).into();
+        let color = Rgb::from(device.color());
+        let Rgb(r, g, b) = color;
+
+        let mut light = lights.get_mut(fixture.light).unwrap();
+        light.color = Color::linear_rgb(r, g, b);
+        light.intensity = device.intensity() * color.luminance();
+
+        let material = materials.get_mut(&fixture.material).unwrap();
+        let s = 10.0 * color.luminance();
+        material.emissive = Color::linear_rgba(s * r, s * g, s * b, 0.15).into();
     }
 }
