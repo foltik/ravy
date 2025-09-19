@@ -35,13 +35,15 @@ pub struct GltfSceneBuilder {
 }
 
 #[derive(Component, Clone)]
-struct GltfSceneLoader {
-    handle: Handle<Gltf>,
-    builder: GltfSceneBuilder,
+pub struct GltfSceneLoader {
+    pub handle: Handle<Gltf>,
+    pub builder: GltfSceneBuilder,
 }
 
 #[derive(Component)]
 pub struct GltfScene {
+    /// Map from glTF node names to Entities
+    nodes: HashMap<String, Entity>,
     /// Map from glTF animation names to their index in the AnimationGraph
     animations: HashMap<String, AnimationNodeIndex>,
     /// Pointer to the AnimationPlayer
@@ -155,6 +157,14 @@ fn load_gltfs_post(
     let mut loader = loaders.get_mut(scene).unwrap();
     let gltf = gltfs.get(&loader.handle).unwrap();
 
+    let mut nodes = HashMap::default();
+    for entity in children.iter_descendants(scene) {
+        let Ok(name) = names.get(entity) else {
+            continue;
+        };
+        nodes.insert(name.to_string(), entity);
+    }
+
     // Add components to the root scene entity
     for insert_fn in &loader.builder.insert_fns {
         insert_fn(&mut cmds.entity(scene));
@@ -246,7 +256,7 @@ fn load_gltfs_post(
     }
 
     cmds.entity(scene)
-        .insert(GltfScene { animations, animation_player, animation_ops: vec![] });
+        .insert(GltfScene { nodes, animations, animation_player, animation_ops: vec![] });
 }
 
 fn reload_gltfs(
@@ -268,6 +278,13 @@ fn reload_gltfs(
 }
 
 impl GltfScene {
+    pub fn node(&self, name: &str) -> Entity {
+        self.nodes[name]
+    }
+    pub fn nodes(&self) -> impl Iterator<Item = (&str, Entity)> {
+        self.nodes.iter().map(|(name, &e)| (name.as_str(), e))
+    }
+
     fn animation_idx(&self, name: &str) -> AnimationNodeIndex {
         *self.animations.get(name).unwrap_or_else(|| {
             let names = self.animations.keys().collect::<Vec<_>>();
