@@ -18,11 +18,7 @@ impl Range {
 
     /// Sort the `lo` and `hi` bounds.
     pub fn sort(self) -> Self {
-        if self.lo < self.hi {
-            self
-        } else {
-            self.invert()
-        }
+        if self.lo < self.hi { self } else { self.invert() }
     }
 }
 
