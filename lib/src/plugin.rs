@@ -57,7 +57,7 @@ pub fn hotkeys(
         };
     }
 
-    if keys.just_pressed(KeyCode::Tab) {
+    if keys.just_pressed(KeyCode::Backquote) {
         ui.visible = !ui.visible;
     }
 }
