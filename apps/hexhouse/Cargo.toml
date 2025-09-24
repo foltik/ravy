@@ -11,3 +11,5 @@ path = "src/hexhouse.rs"
 lib.workspace = true
 bevy.workspace = true
 argh.workspace = true
+rand.workspace = true
+itertools.workspace = true

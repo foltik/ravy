@@ -2794,7 +2794,9 @@ version = "0.1.0"
 dependencies = [
  "argh",
  "bevy",
+ "itertools 0.14.0",
  "lib",
+ "rand",
 ]
 
 [[package]]
