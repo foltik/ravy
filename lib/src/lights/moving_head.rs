@@ -151,7 +151,7 @@ pub fn update(
         light.intensity = device.intensity() * color.luminance();
 
         let material = materials.get_mut(&fixture.material).unwrap();
-        let s_emit = device.intensity() * 0.0001 * color.luminance();
+        let s_emit = device.intensity() * 0.001 * color.luminance();
         let s_alpha = 0.08 * color.luminance();
         material.base_color.set_alpha(s_alpha);
         material.emissive = Color::linear_rgba(s_emit * r, s_emit * g, s_emit * b, 1.0).into();

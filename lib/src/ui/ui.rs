@@ -29,9 +29,9 @@ impl Default for Ui {
     fn default() -> Self {
         let mut dock = DockState::new(vec![Tab::Viewport]);
         let tree = dock.main_surface_mut();
-        let [_game, hierarchy] = tree.split_left(NodeIndex::root(), 0.2, vec![Tab::Entities]);
+        let [_game, hierarchy] = tree.split_left(NodeIndex::root(), 0.2, vec![Tab::Entities, Tab::Resources]);
         let [_hierarchy, inspector] = tree.split_below(hierarchy, 0.25, vec![Tab::Inspector]);
-        let [_inspector, _other] = tree.split_below(inspector, 0.5, vec![Tab::Audio, Tab::Resources]);
+        let [_inspector, _other] = tree.split_below(inspector, 0.5, vec![Tab::Audio]);
 
         Self {
             dock: Some(dock),
