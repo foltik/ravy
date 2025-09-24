@@ -14,6 +14,7 @@ pub mod midi;
 mod osc;
 mod plugin;
 pub mod sim;
+mod synesthesia;
 mod tap;
 pub mod ui;
 
@@ -34,6 +35,7 @@ pub mod prelude {
     pub use crate::midi::{Midi, MidiDevice};
     pub use crate::osc::*;
     pub use crate::plugin::RavyPlugin;
+    pub use crate::synesthesia::Synesthesia;
     pub use crate::tap::{Tap, TapMut};
     pub use crate::ui::{self, Ui};
 

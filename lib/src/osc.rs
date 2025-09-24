@@ -1,5 +1,5 @@
 use std::net::{SocketAddr, UdpSocket};
-use std::sync::mpsc;
+use std::sync::{Mutex, mpsc};
 
 use anyhow::{Context, Result};
 use rosc::{OscArray as RoscArray, OscMessage as RoscMessage, OscPacket as RoscPacket, OscType as RoscType};
@@ -17,7 +17,7 @@ use crate::prelude::*;
 /// See <https://en.wikipedia.org/wiki/Open_Sound_Control>
 pub struct Osc {
     send_sock: UdpSocket,
-    rx: mpsc::Receiver<OscMessage>,
+    rx: Mutex<mpsc::Receiver<OscMessage>>,
 }
 
 /// An OSC message consisting of an address and list of args, e.g. `("/effects/slider1", [OscType::Float(0.42)])`.
@@ -78,13 +78,13 @@ impl Osc {
             }
         });
 
-        Ok(Self { send_sock, rx })
+        Ok(Self { send_sock, rx: Mutex::new(rx) })
     }
 
     /// Receive any pending OSC messages.
     pub fn recv(&mut self) -> Vec<(String, Vec<OscType>)> {
         let mut msgs = vec![];
-        while let Ok(msg) = self.rx.try_recv() {
+        while let Ok(msg) = self.rx.lock().unwrap().try_recv() {
             msgs.push(msg);
         }
         msgs
