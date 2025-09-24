@@ -51,12 +51,7 @@ pub struct State {
     /// Most recently pressed y coord
     pub y: i8,
 
-    // Test paramters
-    pub test0: f32,
-    pub test1: f32,
-    pub test2: f32,
-    pub test3: f32,
-    pub test4: f32,
+    pub buttons: [bool; 8],
 }
 
 impl State {
@@ -1054,7 +1049,7 @@ pub fn on_pad(mut s: ResMut<State>, mut pad: ResMut<Midi<LaunchpadX>>) {
 
 ///////////////////////// CTRL INPUT /////////////////////////
 
-pub fn on_ctrl(mut s: ResMut<State>, mut ctrl: ResMut<Midi<LaunchControlXL>>) {
+pub fn on_ctrl(mut s: ResMut<State>, mut ctrl: ResMut<Midi<LaunchControlXL>>, mut syn: ResMut<Synesthesia>) {
     let s: &mut State = &mut *s;
 
     for input in ctrl.recv() {
@@ -1062,15 +1057,45 @@ pub fn on_ctrl(mut s: ResMut<State>, mut ctrl: ResMut<Midi<LaunchControlXL>>) {
         debug!("ctrl: {input:?}");
 
         match input {
-            Input::Slider(0, fr) => s.brightness = fr,
+            Input::Slider(7, fr) => s.brightness = fr,
 
-            Input::SendA(0, fr) => s.test0 = fr,
-            Input::SendA(1, fr) => s.test1 = fr,
-            Input::SendA(2, fr) => s.test2 = fr,
-            Input::SendA(3, fr) => s.test3 = fr,
-            Input::SendA(4, fr) => s.test4 = fr,
+            Input::Slider(i, fr) => syn.set_slider(1 + i as usize, fr),
+            Input::Pan(i, fr) => syn.set_knob(1 + i as usize, fr * 0.5 + 0.5),
+            Input::Focus(i, true) => syn.set_bang(1 + i as usize, 1.0),
+            Input::Control(i, true) => {
+                let i = i as usize;
+                s.buttons[i] = !s.buttons[i];
+                syn.set_toggle(i + 1, if s.buttons[i] { 1.0 } else { 0.0 });
+            }
+
+            // Input::SendA(0, fr) => s.test0 = fr,
+            // Input::SendA(1, fr) => s.test1 = fr,
+            // Input::SendA(2, fr) => s.test2 = fr,
+            // Input::SendA(3, fr) => s.test3 = fr,
+            // Input::SendA(4, fr) => s.test4 = fr,
             _ => {}
         }
+
+        // Global
+        //
+        // Slider(0, fr) => syn.set_control("media", "playbackspeed", fr),
+        // Focus(0, b) => syn.set_control("media", "invertmedia", if b { 1.0 } else { 0.0 }),
+        //
+        // syn.set_control("meta", "limitcolors", 1.0),
+        // syn.set_control_color("meta", "lowcolor", Rgb::BLACK),
+        // syn.set_control_color("meta", "highcolor", Rgb::BLUE),
+
+        // Scene 0
+        // Scene 1
+        // Scene 2
+        // Scene 3
+        // Scene 4
+        // Scene 5
+        // Scene 6
+        // Scene 7
+
+        // Artist Logos
+        // -
     }
 }
 

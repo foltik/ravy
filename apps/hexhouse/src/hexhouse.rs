@@ -11,9 +11,9 @@ mod logic;
 // TODO:
 //
 // # Now
-// - [ ] port lighting code from berlinrat
-// - [ ] make some cosine palettes
+// - [x] port lighting code from berlinrat
 // - [ ] Synesthesia OSC connector (color, scene switching)
+// - [ ] make some cosine palettes
 //
 // # Hard
 // - [ ] way to dynamically add inspector tab
@@ -59,7 +59,6 @@ fn main() {
         .add_plugins(RavyPlugin { module: module_path!(), debug: args.debug, trace: args.trace })
         .add_systems(Startup, setup)
         .add_systems(PreUpdate, setup_scene)
-        // .add_systems(Update, render_lights)
         .add_systems(
             Update,
             (
@@ -78,6 +77,7 @@ fn setup(mut cmds: Commands, assets: Res<AssetServer>) -> Result {
     // Resources
     cmds.insert_resource(logic::State::new());
     cmds.insert_resource(E131::new("10.16.4.1")?);
+    cmds.insert_resource(Synesthesia::new("0.0.0.0:0", "127.0.0.1:6000")?);
 
     // Control surfaces
     let ctrl = Midi::new("Launch Control XL", LaunchControlXL::default());
@@ -167,97 +167,3 @@ fn parse_fixture(name: &str) -> (FixtureChannel, FixtureIndex) {
 
     (chan, idx)
 }
-
-// fn transfer_lights<'a>(
-//     time: Res<Time>,
-
-//     mut e131: ResMut<E131>,
-// ) {
-//     // let Ok(disco) = disco_ball.single() else {
-//     //     return;
-//     // };
-
-//     // let l = Lights { beams, spots, disco_ball };
-
-//     // let t = time.elapsed_secs();
-//     // let hue = (t / 8.0).fract();
-
-//     // let mut dmx = [0u8; 256];
-
-//     // for (mut beam, transform, channel, idx) in beams {
-//     //     beam.color = Rgb::hsv(hue, 1.0, 1.0).into();
-
-//     //     match *preset {
-//     //         Preset::Zero => {
-//     //             beam.pitch = 0.0;
-//     //             beam.yaw = 0.0;
-//     //         }
-//     //         Preset::Down => {
-//     //             beam.pitch = 0.5;
-//     //             beam.yaw = 0.0;
-//     //         }
-//     //         Preset::Wave => {
-//     //             beam.pitch = t.tri(8.0) * 0.75;
-//     //             beam.yaw = 0.0;
-//     //         }
-//     //         Preset::Circle => {
-//     //             beam.pitch = 0.33;
-//     //             beam.yaw = t.fsin(8.0);
-//     //         }
-//     //         Preset::Disco => {
-//     //             // TODO: refactor this into some sort of look_at() method
-
-//     //             let target_pos = disco.translation;
-//     //             let fixture_pos = transform.translation;
-//     //             let fixture_rot = transform.rotation;
-
-//     //             // Direction to target in world space
-//     //             let world_dir = (target_pos - fixture_pos).normalize();
-//     //             // Transform to local space (where +X is forward)
-//     //             let local_dir = fixture_rot.inverse() * world_dir;
-
-//     //             // For beam pointing at +X locally:
-//     //             // After Ry(yaw) * Rz(pitch), +X becomes:
-//     //             // x = cos(yaw) * cos(pitch)
-//     //             // y = sin(pitch)
-//     //             // z = sin(yaw) * cos(pitch)
-
-//     //             // Solve for angles:
-//     //             let mut pitch_deg = local_dir.y.asin().clamp(-PI / 2.0, PI / 2.0).to_degrees();
-//     //             let mut yaw_deg = (-local_dir.z).atan2(local_dir.x).to_degrees();
-
-//     //             // Map pitch from [-180, 180] to [0, 180]
-//     //             if pitch_deg < 0.0 {
-//     //                 pitch_deg = -pitch_deg; // Negate pitch
-//     //                 yaw_deg += 180.0; // Flip yaw to compensate
-//     //             }
-//     //             pitch_deg = pitch_deg.clamp(0.0, 180.0);
-
-//     //             // Map yaw from [-180, 180] to [-540, 0]
-//     //             // First normalize to [-180, 180]
-//     //             yaw_deg = ((yaw_deg + 180.0).rem_euclid(360.0)) - 180.0;
-//     //             // Then map to [-540, 0]
-//     //             if yaw_deg > 0.0 {
-//     //                 yaw_deg -= 360.0;
-//     //             }
-//     //             yaw_deg = yaw_deg.clamp(-540.0, 0.0);
-
-//     //             // Normalize to [0, 1]
-//     //             let yaw_n = (-yaw_deg / 540.0).clamp(0.0, 1.0); // 0° → 1.0, -540° → 0.0
-//     //             let pitch_n = (pitch_deg / 180.0).clamp(0.0, 1.0); // 0° → 0.0, 180° → 1.0
-
-//     //             beam.yaw = yaw_n;
-//     //             beam.pitch = pitch_n;
-//     //         }
-//     //     }
-
-//     //     beam.encode(&mut dmx[channel.0..]);
-//     // }
-
-//     // for (mut spot, channel) in spots {
-//     //     spot.color = Rgb::hsv(hue, 1.0, 1.0).into();
-//     //     spot.encode(&mut dmx[channel.0..]);
-//     // }
-
-//     // e131.send(&dmx);
-// }
