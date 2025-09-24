@@ -10,7 +10,7 @@ use types::*;
 
 #[derive(Debug)]
 pub struct LaunchpadX {
-    mode: Mode,
+    mode: PadMode,
     /// Cache of last requested output state per position byte.
     /// Stores (output_type, color_bytes) to avoid duplicate MIDI messages.
     cache: std::collections::HashMap<u8, (u8, Vec<u8>)>,
@@ -18,7 +18,7 @@ pub struct LaunchpadX {
 
 impl Default for LaunchpadX {
     fn default() -> Self {
-        Self { mode: Mode::default(), cache: HashMap::new() }
+        Self { mode: PadMode::default(), cache: HashMap::new() }
     }
 }
 
@@ -74,7 +74,7 @@ pub enum Output {
     ClearColor(Color),
     Batch(Vec<(Pos, Color)>),
 
-    Mode(Mode),
+    Mode(PadMode),
     Brightness(f32),
     Velocity(Velocity),
     Pressure(Pressure, PressureCurve),
@@ -87,7 +87,7 @@ impl MidiDevice for LaunchpadX {
     type Output = Output;
 
     fn init(pad: &mut Midi<Self>) {
-        pad.send(Output::Mode(Mode::Programmer));
+        pad.send(Output::Mode(PadMode::Programmer));
         pad.send(Output::Pressure(Pressure::Polyphonic, PressureCurve::Medium));
         pad.send(Output::Clear);
     }
@@ -95,8 +95,8 @@ impl MidiDevice for LaunchpadX {
     fn process_input(&mut self, raw: &[u8]) -> Option<Input> {
         Some(match raw[0] {
             0x90 => match self.mode {
-                Mode::Live => Input::Unknown,
-                Mode::Programmer => {
+                PadMode::Live => Input::Unknown,
+                PadMode::Programmer => {
                     let i = Index::from_byte(raw[1]);
                     match raw[2] {
                         0 => Input::Release(i),
@@ -242,8 +242,8 @@ impl MidiDevice for LaunchpadX {
             Output::Mode(m) => {
                 self.mode = m;
                 let mode = match m {
-                    Mode::Live => 0,
-                    Mode::Programmer => 1,
+                    PadMode::Live => 0,
+                    PadMode::Programmer => 1,
                 };
                 vec![0xF0, 0x00, 0x20, 0x29, 0x2, 0x0C, 0x0E, mode, 0xF7]
             }

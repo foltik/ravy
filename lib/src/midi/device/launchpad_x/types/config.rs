@@ -1,8 +1,8 @@
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
-pub enum Mode {
+pub enum PadMode {
     #[default]
     Live,
-    Programmer
+    Programmer,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -10,14 +10,14 @@ pub enum Velocity {
     Low,
     Medium,
     High,
-    Fixed(u8)
+    Fixed(u8),
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Pressure {
     Polyphonic,
     Channel,
-    Off
+    Off,
 }
 
 #[derive(Copy, Clone, Debug)]
