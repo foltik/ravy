@@ -60,6 +60,15 @@ impl Synesthesia {
         );
     }
 
+    pub fn set_ravy_float(&mut self, name: &str, fr: f32) {
+        self.send(format!("/controls/scene/ravy_{name}/raw"), vec![OscType::Float(fr)]);
+    }
+    pub fn set_ravy_vec3(&mut self, name: &str, v: Vec3) {
+        self.set_ravy_float(&format!("{name}_x"), v.x);
+        self.set_ravy_float(&format!("{name}_y"), v.y);
+        self.set_ravy_float(&format!("{name}_z"), v.z);
+    }
+
     pub fn launch_scene(&mut self, scene: &str) {
         self.send(format!("/scenes/{scene}"), vec![]);
     }
