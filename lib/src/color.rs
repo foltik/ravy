@@ -18,11 +18,59 @@ impl Rgb {
     pub fn luminance(&self) -> f32 {
         (0.333 * self.0) + (0.333 * self.1) + (0.333 * self.2)
     }
+
+    /// Encode uniform greys as white-only in Rgbw, others as RGB-only.
+    pub fn with_w(self) -> Rgbw {
+        let Rgb(r, g, b) = self;
+        if r == g && g == b { Rgbw(0.0, 0.0, 0.0, r) } else { Rgbw(r, g, b, 0.0) }
+    }
 }
 
 /// An (r, g, b, w) color.
 #[derive(Default, Clone, Copy, PartialEq, Debug)]
 pub struct Rgbw(pub f32, pub f32, pub f32, pub f32);
+
+/// 3-channel cosine gradient
+#[derive(Debug, Clone)]
+pub struct RgbGradient {
+    pub dc: Vec3,
+    pub amp: Vec3,
+    pub freq: Vec3,
+    pub phase: Vec3,
+}
+
+/// 4-channel cosine gradient
+#[derive(Debug, Clone)]
+pub struct RgbwGradient {
+    pub dc: Vec4,
+    pub amp: Vec4,
+    pub freq: Vec4,
+    pub phase: Vec4,
+}
+
+impl RgbwGradient {
+    pub fn solid(color: Rgbw) -> Self {
+        Self { dc: Vec4::from(color), amp: Vec4::ZERO, freq: Vec4::ZERO, phase: Vec4::ZERO }
+    }
+
+    pub fn split(start: Rgbw, end: Rgbw) -> Self {
+        let start = Vec4::from(start);
+        let end = Vec4::from(end);
+        Self {
+            dc: (start + end) * 0.5,  // midpoint
+            amp: (start - end) * 0.5, // half difference
+            freq: Vec4::splat(0.5),   // half cycle
+            phase: Vec4::ZERO,
+        }
+    }
+
+    pub fn eval(&self, t: f32) -> Rgbw {
+        let t = t.clamp(0.0, 1.0);
+        let angle = (self.freq * Vec4::splat(t) + self.phase) * TAU;
+        let cos = vec4(angle.x.cos(), angle.y.cos(), angle.z.cos(), angle.w.cos());
+        Rgbw::from(self.dc + self.amp * cos)
+    }
+}
 
 /// Conversions
 mod conv {
@@ -63,6 +111,42 @@ mod conv {
         fn into(self) -> egui::Color32 {
             let Rgb(r, g, b) = self;
             egui::Color32::from_rgba_premultiplied(r.byte(), g.byte(), b.byte(), 255)
+        }
+    }
+
+    impl From<Vec3> for Rgb {
+        fn from(Vec3 { x, y, z }: Vec3) -> Self {
+            Self(x, y, z)
+        }
+    }
+    impl From<Rgb> for Vec3 {
+        fn from(Rgb(r, g, b): Rgb) -> Self {
+            vec3(r, g, b)
+        }
+    }
+    impl From<Vec4> for Rgbw {
+        fn from(vec: Vec4) -> Self {
+            Self(vec.x, vec.y, vec.z, vec.w)
+        }
+    }
+    impl From<Rgbw> for Vec4 {
+        fn from(Rgbw(r, g, b, w): Rgbw) -> Self {
+            vec4(r, g, b, w)
+        }
+    }
+
+    impl From<RgbwGradient> for RgbGradient {
+        fn from(g: RgbwGradient) -> Self {
+            fn convert(v: Vec4) -> Vec3 {
+                Vec3::from(Rgb::from(Rgbw::from(v)))
+            }
+            RgbGradient {
+                dc: convert(g.dc),
+                amp: convert(g.amp),
+                // w has no rgb meaning for these
+                freq: Vec3::new(g.freq.x, g.freq.y, g.freq.z),
+                phase: Vec3::new(g.phase.x, g.phase.y, g.phase.z),
+            }
         }
     }
 }
