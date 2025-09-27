@@ -12,6 +12,7 @@ bevy-inspector-egui.workspace = true
 egui_dock.workspace = true
 egui_plot.workspace = true
 anyhow.workspace = true
+dyn-clone.workspace = true
 rand.workspace = true
 midir.workspace = true
 rosc.workspace = true
