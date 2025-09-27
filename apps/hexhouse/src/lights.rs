@@ -13,7 +13,7 @@ pub struct Lights<'a> {
     spots: Vec<Light<'a, SaberSpot>>,
 
     #[allow(unused)]
-    disco: Vec3,
+    pub disco: Vec3,
 }
 
 impl<'a> Lights<'a> {
@@ -79,19 +79,8 @@ impl<'a> Lights<'a> {
     }
 
     pub fn reset(&mut self) {
-        self.for_each_spot(|spot, _i, _fr| *spot = Default::default());
-        self.for_each_beam(|beam, _i, _fr| *beam = Default::default());
-    }
-
-    /// All one color
-    pub fn all(&mut self, col: Rgbw) {
-        self.split(col, col);
-    }
-
-    /// Spots one color, beams another
-    pub fn split(&mut self, col0: Rgbw, col1: Rgbw) {
-        self.for_each_spot(|spot, _i, _fr| spot.color = col0);
-        self.for_each_beam(|beam, _i, _fr| beam.color = col1);
+        self.for_each_spot(|spot, _i, _fr| *spot.light = Default::default());
+        self.for_each_beam(|beam, _i, _fr| *beam.light = Default::default());
     }
 
     /// Apply a function to the color of each light
@@ -101,14 +90,14 @@ impl<'a> Lights<'a> {
     }
 
     // Iterate through the lights, with additional index and fr (from 0 to 1) parameters.
-    pub fn for_each_spot(&mut self, f: impl FnMut(&mut SaberSpot, usize, f32)) {
+    pub fn for_each_spot(&mut self, f: impl FnMut(&mut Light<SaberSpot>, usize, f32)) {
         Self::for_each(&mut self.spots, f);
     }
-    pub fn for_each_beam(&mut self, f: impl FnMut(&mut StealthBeam, usize, f32)) {
+    pub fn for_each_beam(&mut self, f: impl FnMut(&mut Light<StealthBeam>, usize, f32)) {
         Self::for_each(&mut self.beams, f);
     }
 
-    fn for_each<T>(slice: &mut [Light<T>], mut f: impl FnMut(&mut T, usize, f32)) {
+    fn for_each<T>(slice: &mut [Light<T>], mut f: impl FnMut(&mut Light<T>, usize, f32)) {
         let n = slice.len();
         slice.iter_mut().enumerate().for_each(|(i, t)| f(t, i, i as f32 / n as f32));
     }
@@ -131,15 +120,15 @@ impl<'a> Lights<'a> {
 pub struct Light<'a, T> {
     light: Mut<'a, T>,
 
-    channel: usize,
-    row: usize,
-    col: usize,
-    i: usize,
+    pub channel: usize,
+    pub row: usize,
+    pub col: usize,
+    pub i: usize,
 
-    x: f32,
-    z: f32,
+    pub x: f32,
+    pub z: f32,
 
-    transform: &'a Transform,
+    pub transform: &'a Transform,
 }
 
 impl<'a, T> std::ops::Deref for Light<'a, T> {
