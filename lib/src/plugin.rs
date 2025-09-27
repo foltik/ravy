@@ -46,7 +46,7 @@ pub fn hotkeys(
     mut window: Single<&mut Window>,
     mut exit: EventWriter<AppExit>,
 ) {
-    if keys.just_pressed(KeyCode::KeyQ) {
+    if keys.pressed(KeyCode::ShiftLeft) && keys.just_pressed(KeyCode::KeyQ) {
         exit.write(AppExit::Success);
     }
 

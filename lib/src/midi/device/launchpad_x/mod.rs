@@ -58,6 +58,22 @@ impl Input {
                 let c = Coord::from(i);
                 Some((c.0, c.1))
             }
+            Input::Up(true) => Some((0, 8)),
+            Input::Down(true) => Some((1, 8)),
+            Input::Left(true) => Some((2, 8)),
+            Input::Right(true) => Some((3, 8)),
+            Input::Session(true) => Some((4, 8)),
+            Input::Note(true) => Some((5, 8)),
+            Input::Custom(true) => Some((6, 8)),
+            Input::Capture(true) => Some((7, 8)),
+            Input::Volume(true) => Some((8, 7)),
+            Input::Pan(true) => Some((8, 6)),
+            Input::A(true) => Some((8, 5)),
+            Input::B(true) => Some((8, 4)),
+            Input::Stop(true) => Some((8, 3)),
+            Input::Mute(true) => Some((8, 2)),
+            Input::Solo(true) => Some((8, 1)),
+            Input::Record(true) => Some((8, 0)),
             _ => None,
         }
     }

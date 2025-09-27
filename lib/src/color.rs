@@ -49,6 +49,44 @@ pub struct RgbwGradient {
 }
 
 impl RgbwGradient {
+    pub const RAINBOW: Self = Self {
+        dc: vec4(0.5, 0.5, 0.5, 0.0),
+        amp: vec4(1.0, 1.0, 1.0, 0.0),
+        freq: vec4(1.0, 1.0, 1.0, 0.0),
+        phase: vec4(0.0, 1.0 / 3.0, 2.0 / 3.0, 0.0),
+    };
+
+    // Palette::Rainbow => RgbGradient {
+    //     dc: vec3(0.731, 1.098, 0.192),
+    //     amp: vec3(0.358, 1.090, 0.657),
+    //     freq: vec3(1.077, 0.360, 0.328),
+    //     phase: vec3(0.965, 2.265, 0.837),
+    // },
+    // ColorPalette::Rainbow => RgbGradient {
+    //     dc: vec3(0.5, 0.5, 0.5),
+    //     amp: vec3(0.5, 0.5, 0.5),
+    //     freq: vec3(0.8, 0.8, 0.5),
+    //     phase: vec3(0.0, 0.2, 0.5),
+    // },
+}
+
+/*
+
+  color palette ideas:
+
+  paletteCol = palette(var, vec3(0.420, 0.500, 0.500), vec3(0.500, 0.500, 0.500), vec3(0.600, 0.250, 1.200), vec3(0.500, 0.450, 0.500));
+  paletteCol = palette(var, vec3(0.500, 0.580, 0.500), vec3(0.190, 0.460, 0.500), vec3(0.760, 0.740, 0.580), vec3(1.000, 0.300, 0.490));
+  paletteCol = palette(1.0-var,vec3(0.500, 0.940, 0.900), vec3(0.600, 0.640, 0.350), vec3(0.680, 1.020, 0.405), vec3(0.380, 0.440, 0.095));
+  paletteCol = palette(var,vec3(0.500, 0.500, 0.500), vec3(0.500, 0.500, 0.500), vec3(0.500, 0.825, 0.750), vec3(0.500, 0.500, 0.500));
+  paletteCol = palette(1.0-var,vec3(0.000, 0.580, 0.453), vec3(0.848, 0.703, 0.110), vec3(0.700, 0.175, 0.542), vec3(0.000, 0.182, 0.915));
+  paletteCol = palette(var,vec3(0.129, 0.359, 0.072), vec3(0.933, 0.561, 0.616), vec3(0.334, 1.013, 0.882), vec3(0.597, 0.050, 0.885));
+  paletteCol = palette(var,  vec3(-0.060, -0.340, 0.100), vec3(0.940, 0.840, 0.713), vec3(0.600, 0.735, 0.7191), vec3(0.500, 0.260, 0.335));
+  paletteCol = palette(var,  vec3(-0.060, -0.340, 0.100), vec3(0.940, 0.840, 0.713), vec3(0.600, 0.735, 0.2191), vec3(0.500, 0.260, 0.335));
+  paletteCol = palette(var,vec3(0.000, 0.040, 0.073), vec3(0.000, 0.530, 0.420), vec3(0.485, 0.930, 0.931), vec3(0.400, 0.599, 0.520));
+  paletteCol = palette(1.0-var,vec3(1.040, 0.180, 0.260), vec3(0.053, 0.775, 0.330), vec3(0.142, 0.523, 0.800), vec3(0.242, 0.887, 0.000));
+*/
+
+impl RgbwGradient {
     pub fn solid(color: Rgbw) -> Self {
         Self { dc: Vec4::from(color), amp: Vec4::ZERO, freq: Vec4::ZERO, phase: Vec4::ZERO }
     }
