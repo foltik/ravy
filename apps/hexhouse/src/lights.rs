@@ -83,6 +83,11 @@ impl<'a> Lights<'a> {
         self.for_each_beam(|beam, _i, _fr| *beam = Default::default());
     }
 
+    /// All one color
+    pub fn all(&mut self, col: Rgbw) {
+        self.split(col, col);
+    }
+
     /// Spots one color, beams another
     pub fn split(&mut self, col0: Rgbw, col1: Rgbw) {
         self.for_each_spot(|spot, _i, _fr| spot.color = col0);
