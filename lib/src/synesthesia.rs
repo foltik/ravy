@@ -47,11 +47,11 @@ impl Synesthesia {
     }
 
     pub fn set_control(&mut self, bank: &str, name: &str, value: f32) {
-        self.send(format!("/controls/{bank}/{name}"), vec![OscType::Float(value)]);
+        self.send(format!("/controls/{bank}/{name}/raw"), vec![OscType::Float(value)]);
     }
     pub fn set_control_color(&mut self, bank: &str, name: &str, color: Rgb) {
         self.send(
-            format!("/controls/{bank}/{name}"),
+            format!("/controls/{bank}/{name}/raw"),
             vec![
                 OscType::Float(color.0),
                 OscType::Float(color.1),

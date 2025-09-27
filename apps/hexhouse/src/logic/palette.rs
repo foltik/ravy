@@ -3,8 +3,8 @@ use lib::prelude::*;
 use super::State;
 
 pub trait Palette: DynClone + Send + Sync + 'static {
-    fn color0(&self, s: &State) -> Rgbw;
-    fn color1(&self, s: &State) -> Rgbw;
+    fn beam_color(&self, s: &State) -> Rgbw;
+    fn spot_color(&self, s: &State) -> Rgbw;
     fn gradient(&self, s: &State) -> RgbwGradient;
 }
 clone_trait_object!(Palette);
@@ -15,8 +15,8 @@ clone_trait_object!(Palette);
 pub struct Solid(pub Rgbw);
 #[rustfmt::skip]
 impl Palette for Solid {
-    fn color0(&self, _: &State) -> Rgbw { self.0 }
-    fn color1(&self, _: &State) -> Rgbw { self.0 }
+    fn beam_color(&self, _: &State) -> Rgbw { self.0 }
+    fn spot_color(&self, _: &State) -> Rgbw { self.0 }
     fn gradient(&self, _: &State) -> RgbwGradient { RgbwGradient::split(Rgbw::BLACK, self.0) }
 }
 
@@ -24,8 +24,8 @@ impl Palette for Solid {
 pub struct Split(pub Rgbw, pub Rgbw);
 #[rustfmt::skip]
 impl Palette for Split {
-    fn color0(&self, _: &State) -> Rgbw { self.0 }
-    fn color1(&self, _: &State) -> Rgbw { self.1 }
+    fn beam_color(&self, _: &State) -> Rgbw { self.0 }
+    fn spot_color(&self, _: &State) -> Rgbw { self.1 }
     fn gradient(&self, _: &State) -> RgbwGradient { RgbwGradient::split(self.0, self.1) }
 }
 
@@ -34,11 +34,11 @@ impl Palette for Split {
 #[derive(Clone)]
 pub struct Rainbow;
 impl Palette for Rainbow {
-    fn color0(&self, s: &State) -> Rgbw {
+    fn beam_color(&self, s: &State) -> Rgbw {
         Rgb::hsv(s.phi(16, 1), 1.0, 1.0).into()
     }
-    fn color1(&self, s: &State) -> Rgbw {
-        self.color0(s)
+    fn spot_color(&self, s: &State) -> Rgbw {
+        self.beam_color(s)
     }
     fn gradient(&self, _: &State) -> RgbwGradient {
         RgbwGradient::RAINBOW
@@ -57,15 +57,15 @@ pub struct Cycle<const N: usize>(pub [Rgbw; N]);
 // Osc([Rgbw::BLUE, Rgbw::WHITE])
 
 impl<const N: usize> Palette for Cycle<N> {
-    fn color0(&self, s: &State) -> Rgbw {
+    fn beam_color(&self, s: &State) -> Rgbw {
         let fr = s.pd(Pd(1, 2)).ramp(1.0);
         let i = (fr * N as f32).floor() as usize;
         self.0[i]
     }
-    fn color1(&self, s: &State) -> Rgbw {
-        self.color0(s)
+    fn spot_color(&self, s: &State) -> Rgbw {
+        self.beam_color(s)
     }
     fn gradient(&self, s: &State) -> RgbwGradient {
-        RgbwGradient::solid(self.color0(s))
+        RgbwGradient::solid(self.beam_color(s))
     }
 }

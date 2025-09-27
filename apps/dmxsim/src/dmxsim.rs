@@ -39,7 +39,7 @@ fn main() -> Result {
     App::new()
         .add_plugins(RavyPlugin { module: module_path!(), debug: args.debug, trace: args.trace })
         .add_systems(Startup, setup)
-        .add_systems(PreUpdate, apply_pattern)
+        // .add_systems(PreUpdate, apply_pattern)
         .add_systems(
             Update,
             (
@@ -58,17 +58,17 @@ fn main() -> Result {
     Ok(())
 }
 
-fn apply_pattern(mut sim: ResMut<SimState>, t: Res<Time>) {
-    let t = t.elapsed_secs() / 4.0;
+// fn apply_pattern(mut sim: ResMut<SimState>, t: Res<Time>) {
+//     let t = t.elapsed_secs() / 4.0;
 
-    let t_pitch = t.phase(1.0, 0.25).square(1.0, 0.5);
-    let t_yaw = t.negsquare(1.0, 0.5);
-    let pitch = 0.1 + 0.25 * t_pitch;
-    let yaw = 0.5 + 0.08 * t_yaw;
+//     let t_pitch = t.phase(1.0, 0.25).square(1.0, 0.5);
+//     let t_yaw = t.negsquare(1.0, 0.5);
+//     let pitch = 0.1 + 0.25 * t_pitch;
+//     let yaw = 0.5 + 0.08 * t_yaw;
 
-    sim.target_pitch_norm = pitch;
-    sim.target_yaw_norm = yaw - 0.25 / 1.5;
-}
+//     sim.target_pitch_norm = pitch;
+//     sim.target_yaw_norm = yaw - 0.25 / 1.5;
+// }
 
 //
 // ---------- Data model & helpers ----------
@@ -835,7 +835,7 @@ fn draw_ui(mut egui_ctx: EguiContexts, mut state: ResMut<SimState>, mut tests: R
                 ui.label("j_max");
                 ui.add(
                     egui::DragValue::new(&mut state.pitch_j_max)
-                        .range(1_000.0..=100_000.0)
+                        .range(1_000.0..=500_000.0)
                         .speed(50.0),
                 );
             });
@@ -874,7 +874,7 @@ fn draw_ui(mut egui_ctx: EguiContexts, mut state: ResMut<SimState>, mut tests: R
                 ui.label("j_max");
                 ui.add(
                     egui::DragValue::new(&mut state.yaw_j_max)
-                        .range(1_000.0..=100_000.0)
+                        .range(1_000.0..=500_000.0)
                         .speed(50.0),
                 );
             });

@@ -38,10 +38,11 @@ impl SpotDevice for SaberSpot {
 
 impl DmxDevice for SaberSpot {
     fn channels(&self) -> usize {
-        8
+        6
     }
 
     fn encode(&self, dmx: &mut [u8]) {
+        let dmx = &mut dmx[0..self.channels()];
         dmx.fill(0);
 
         let Rgbw(r, g, b, w) = self.color;

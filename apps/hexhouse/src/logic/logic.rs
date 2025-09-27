@@ -1,4 +1,5 @@
 use itertools::Itertools;
+// - [ ] port more shaders
 use lib::lights::fixture::{SaberSpot, StealthBeam};
 use lib::midi::device::launch_control_xl::{self, LaunchControlXL};
 use lib::midi::device::launchpad_x::{self, LaunchpadX};
@@ -17,25 +18,25 @@ use crate::{DiscoBall, FixtureChannel, FixtureIndex};
 const _: () = {};
 use super::palette::*;
 use super::preset::*;
-use crate::{bind, func, palette, preset};
+use crate::{beat, bind, func, palette, preset};
 
 bind! {
     // Lock
-    (6, 8) => func!(Rgbw::BLACK, |s, _| {
-        s.lock = !s.lock;
-    }),
+    // (6, 8) => func!(Rgbw::WHITE, |s, _| {
+    //     s.lock = !s.lock;
+    // }),
     // Toggle pad visualizer
-    (7, 8) => func!(Rgbw::BLACK, |s, pad| {
+    (7, 8) => func!(Rgbw::WHITE, |s, pad| {
         s.visualizer = !s.visualizer;
         pad.send(lib::midi::device::launchpad_x::Output::Clear);
     }),
 
     // Tap to record BPM
-    (0, 7) => func!(Rgbw::WHITE, |s, _| {
+    (0, 7) => func!(Rgbw::VIOLET, |s, _| {
         s.bpm_taps.push(s.t);
     }),
     // Tap to calculate BPM and reset phase
-    (7, 7) => func!(Rgbw::WHITE, |s, _| {
+    (7, 7) => func!(Rgbw::VIOLET, |s, _| {
         match s.bpm_taps.len() {
             0 => { s.phi = 0.0; }
             1 => { s.bpm_taps.clear(); }
@@ -50,74 +51,97 @@ bind! {
         }
     }),
 
+    // Beats
+    (0, 0) => beat!(0, Pd(4, 1)),
+    (0, 1) => beat!(0, Pd(2, 1)),
+    (0, 2) => beat!(0, Pd(1, 1)),
+    (0, 3) => beat!(0, Pd(1, 2)),
+    (0, 4) => beat!(0, Pd(1, 4)),
+    (7, 0) => beat!(1, Pd(4, 1)),
+    (7, 1) => beat!(1, Pd(2, 1)),
+    (7, 2) => beat!(1, Pd(1, 1)),
+    (7, 3) => beat!(1, Pd(1, 2)),
+    (7, 4) => beat!(1, Pd(1, 4)),
+
     // --- Palettes ---
     // Whites
     (0, 6) => palette!(Solid(Rgbw::WHITE)),
-    (7, 6) => palette!(Solid(Rgbw::RGBW)),
+    (0, 5) => palette!(Solid(Rgbw::RGBW)),
+
     // Reds
-    (1, 6) => palette!(Solid(Rgbw::RED)),
-    (2, 6) => palette!(Split(Rgbw::RED, Rgbw::BLACK)),
-    (3, 6) => palette!(Split(Rgbw::BLACK, Rgbw::RED)),
-    (1, 7) => palette!(Split(Rgbw::RED, Rgbw::WHITE)),
-    (2, 7) => palette!(Split(Rgbw::WHITE, Rgbw::RED)),
-    (3, 7) => palette!(Cycle([Rgbw::RED, Rgbw::WHITE])),
-    // Green/Blues
-    (4, 6) => palette!(Solid(Rgbw::LIME)),
-    (4, 7) => palette!(Split(Rgbw::LIME, Rgbw::WHITE)),
-    (5, 6) => palette!(Solid(Rgbw::BLUE)),
-    (5, 7) => palette!(Split(Rgbw::LIME, Rgbw::BLUE)),
-    (6, 6) => palette!(Split(Rgbw::BLUE, Rgbw::WHITE)),
-    (6, 7) => palette!(Split(Rgbw::WHITE, Rgbw::BLUE)),
+    (1, 5) => palette!(Solid(Rgbw::RED)),
+    (1, 6) => palette!(Solid(Rgbw::ORANGE)),
+    (1, 7) => palette!(Split(Rgbw::WHITE, Rgbw::RED)),
 
-    // --- y=0: Off / Break / Special ---
+    (2, 5) => palette!(Solid(Rgbw::HOUSE)),
+    (2, 6) => palette!(Solid(Rgbw::YELLOW)),
+    (2, 7) => palette!(Solid(Rgbw::PEA)),
+
+    (3, 5) => palette!(Solid(Rgbw::MINT)),
+    (3, 6) => palette!(Solid(Rgbw::LIME)),
+    (3, 7) => palette!(Split(Rgbw::WHITE, Rgbw::LIME)),
+
+    (4, 5) => palette!(Solid(Rgbw::CYAN)),
+    (4, 6) => palette!(Solid(Rgbw::BLUE)),
+    (4, 7) => palette!(Split(Rgbw::WHITE, Rgbw::BLUE)),
+
+    (5, 5) => palette!(Solid(Rgbw::VIOLET)),
+    (5, 6) => palette!(Solid(Rgbw::MAGENTA)),
+    (5, 7) => palette!(Split(Rgbw::BLUE, Rgbw::VIOLET)),
+
+    (6, 5) => palette!(Cycle([Rgbw::RED, Rgbw::WHITE])),
+    (6, 6) => palette!(Cycle([Rgbw::LIME, Rgbw::WHITE])),
+    (6, 7) => palette!(Cycle([Rgbw::BLUE, Rgbw::WHITE])),
+
+
+    // Special: look at center stage and DJ
+    // (4, 8) => preset!(Break { beams: BeamPattern::LookAt(vec3(-2.6, 0.25, 1.32)) }), // center stage
+    (4, 8) => preset!(Break { beams: BeamPattern::LookAt(vec3(-4.3, 3.49, -3.72)) }), // DJ booth
+    (5, 8) => preset!(AutoBeat { pd: Pd(1, 1), beam: BeamPattern::LookAtSway { pd: Pd(4, 1), target_pos: vec3(-2.2408, 3.2088, 2.6469), delta: vec3(0.3, 0.3, 0.3) }}), // disco ball
+    (6, 8) => preset!(ColorChase { pd: Pd(1, 2), beam: BeamPattern::LookAt(vec3(-2.2408, 3.2088, 2.6469)) }), // disco ball
+
+    // Rainbows
+    (7, 5) => palette!(Rainbow),
+    (7, 6) => palette!(Cycle([Rgbw::RED, Rgbw::ORANGE, Rgbw::YELLOW, Rgbw::LIME, Rgbw::BLUE, Rgbw::VIOLET])),
+
+    // // --- y=0: Off / Break / Special ---
     (1, 0) => preset!(Off),
-    (2, 0) => preset!(Break { beams: Some(BeamPattern::Out) }),
-    (3, 0) => preset!(Break { beams: Some(BeamPattern::WaveY) }),
-    (4, 0) => preset!(RaisingBeams { pd: Pd(8, 1) }),
-    (5, 0) => preset!(Whirl { pd: Pd(16, 1) }),
-    (6, 0) => preset!(Break { beams: Some(BeamPattern::UpDownWave) }),
-
-    // --- y=1: Solid patterns (On + beam) ---
-    (1, 1) => preset!(On { beams: Some(BeamPattern::Out) }),
-    (2, 1) => preset!(On { beams: Some(BeamPattern::Out) }),
-    (3, 1) => preset!(On { beams: Some(BeamPattern::WaveY) }),
-    (4, 1) => preset!(On { beams: Some(BeamPattern::SnapX) }),
-    (5, 1) => preset!(On { beams: Some(BeamPattern::Whirl) }),
-    (6, 1) => preset!(On { beams: Some(BeamPattern::Twisting) }),
+    (2, 0) => preset!(Break { beams: BeamPattern::Out }),
+    (3, 0) => preset!(Break { beams: BeamPattern::WaveY }),
+    (4, 0) => preset!(Whirl { pd: Pd(16, 1) }),
+    (5, 0) => preset!(RaisingBeams { pd: Pd(8, 1) }),
+    (6, 0) => preset!(Break { beams: BeamPattern::LookAtSway { pd: Pd(4, 1), target_pos: vec3(-2.2408, 3.2088, 2.6469), delta: vec3(0.3, 0.3, 0.3) }}), // Disco ball
 
     // --- y=2: Pd(4,1) family ---
-    (1, 2) => preset!(ChaseSmooth { pd: Pd(1, 1), beam: BeamPattern::WaveY }),
-    (2, 2) => preset!(AutoBeat { pd: Pd(4, 1), r: (0.2..1.0).into(), beam: BeamPattern::RaisingBeams }),
-    (3, 2) => preset!(AutoBeat { pd: Pd(4, 1), r: (0.2..1.0).into(), beam: BeamPattern::WaveY }),
-    (4, 2) => preset!(AutoBeat { pd: Pd(4, 1), r: (0.2..1.0).into(), beam: BeamPattern::UpDownWave }),
-    (5, 2) => preset!(AutoBeat { pd: Pd(4, 1), r: (0.2..1.0).into(), beam: BeamPattern::Whirl }),
-    (6, 2) => preset!(AutoBeat { pd: Pd(4, 1), r: (0.2..1.0).into(), beam: BeamPattern::Twisting }),
+    (1, 1) => preset!(On { beams: BeamPattern::Out }),
+    (2, 1) => preset!(ChaseSmooth { pd: Pd(1, 1), beam: BeamPattern::Whirl }),
+    (3, 1) => preset!(AutoBeat { pd: Pd(4, 1), beam: BeamPattern::RaisingBeams }),
+    (4, 1) => preset!(AutoBeat { pd: Pd(4, 1), beam: BeamPattern::Spinner }),
+    (5, 1) => preset!(AutoBeat { pd: Pd(4, 1), beam: BeamPattern::Whirl }),
+    (6, 1) => preset!(AutoBeat { pd: Pd(4, 1), beam: BeamPattern::Twisting }),
 
     // --- y=3: Pd(2,1) family ---
-    (1, 3) => preset!(ChaseSmooth { pd: Pd(1, 2), beam: BeamPattern::Square }),
-    (2, 3) => preset!(AutoBeat { pd: Pd(2, 1), r: (0.2..1.0).into(), beam: BeamPattern::RaisingBeams }),
-    (3, 3) => preset!(AutoBeat { pd: Pd(2, 1), r: (0.2..1.0).into(), beam: BeamPattern::WaveY }),
-    (4, 3) => preset!(AutoBeat { pd: Pd(2, 1), r: (0.2..1.0).into(), beam: BeamPattern::UpDownWave }),
-    (5, 3) => preset!(AutoBeat { pd: Pd(2, 1), r: (0.2..1.0).into(), beam: BeamPattern::Whirl }),
-    (6, 3) => preset!(AutoBeat { pd: Pd(2, 1), r: (0.2..1.0).into(), beam: BeamPattern::Twisting }),
+    (1, 2) => preset!(ChaseSmooth { pd: Pd(1, 2), beam: BeamPattern::Whirl }),
+    (2, 2) => preset!(AutoBeat { pd: Pd(2, 1), beam: BeamPattern::RaisingBeams }),
+    (3, 2) => preset!(AutoBeat { pd: Pd(2, 1), beam: BeamPattern::WaveY }),
+    (4, 2) => preset!(AutoBeat { pd: Pd(2, 1), beam: BeamPattern::Spinner }),
+    (5, 2) => preset!(AutoBeat { pd: Pd(2, 1), beam: BeamPattern::Whirl }),
+    (6, 2) => preset!(AutoBeat { pd: Pd(2, 1), beam: BeamPattern::Twisting }),
 
     // --- y=4: Pd(1,1) family ---
-    (1, 4) => preset!(AutoBeat { pd: Pd(1, 1), r: (0.2..1.0).into(), beam: BeamPattern::Square }),
-    (2, 4) => preset!(AutoBeat { pd: Pd(1, 1), r: (0.2..1.0).into(), beam: BeamPattern::RaisingBeams }),
-    (3, 4) => preset!(AutoBeat { pd: Pd(1, 1), r: (0.2..1.0).into(), beam: BeamPattern::WaveY }),
-    (4, 4) => preset!(AutoBeat { pd: Pd(1, 1), r: (0.2..1.0).into(), beam: BeamPattern::UpDownWave }),
-    (5, 4) => preset!(AutoBeat { pd: Pd(1, 1), r: (0.2..1.0).into(), beam: BeamPattern::Whirl }),
-    (6, 4) => preset!(AutoBeat { pd: Pd(1, 1), r: (0.2..1.0).into(), beam: BeamPattern::Twisting }),
+    (1, 3) => preset!(AutoBeat { pd: Pd(1, 1), beam: BeamPattern::Square }),
+    (2, 3) => preset!(AutoBeat { pd: Pd(1, 1), beam: BeamPattern::RaisingBeams }),
+    (3, 3) => preset!(AutoBeat { pd: Pd(1, 1), beam: BeamPattern::WaveY }),
+    (4, 3) => preset!(AutoBeat { pd: Pd(1, 1), beam: BeamPattern::Spinner }),
+    (5, 3) => preset!(AutoBeat { pd: Pd(1, 1), beam: BeamPattern::Whirl }),
+    (6, 3) => preset!(AutoBeat { pd: Pd(1, 1), beam: BeamPattern::Twisting }),
 
     // --- y=5: Strobes / Chase ---
-    (0, 5) => preset!(Strobe0 { pd: Pd(1, 8), duty: 1.0 }),
-    (1, 5) => preset!(ChaseNotColorful { pd: Pd(1, 4) }),
-    (2, 5) => preset!(Strobe { pd: Pd(1, 4), duty: 1.0 }),
-    (3, 5) => preset!(Strobe { pd: Pd(1, 8), duty: 1.0 }),
-    (4, 5) => preset!(Strobe { pd: Pd(1, 8), duty: 1.0 }),
-    (5, 5) => preset!(Chase { pd: Pd(1, 1), beam: BeamPattern::Twisting }),
-    (6, 5) => preset!(Chase { pd: Pd(1, 2), beam: BeamPattern::Twisting }),
-    (7, 5) => preset!(Chase { pd: Pd(1, 4), beam: BeamPattern::Twisting }),
+    (2, 4) => preset!(StrobeBeams { pd: Pd(1, 4), duty: 1.0 }),
+    (3, 4) => preset!(Strobe { pd: Pd(1, 4), duty: 1.0 }),
+    (4, 4) => preset!(Strobe { pd: Pd(1, 8), duty: 1.0 }),
+    (5, 4) => preset!(Chase { pd: Pd(1, 2), beam: BeamPattern::Whirl }),
+    (6, 4) => preset!(Chase { pd: Pd(1, 4), beam: BeamPattern::Whirl }),
 }
 
 ///////////////////////// STATE /////////////////////////
@@ -148,6 +172,9 @@ pub struct State {
 
     /// Manual beat
     pub beat: Option<Beat>,
+    /// Per-side monotonic counters incrementing on tap
+    pub beat_c0: f32,
+    pub beat_c1: f32,
 
     // /// Preset loop
     // pub preset: bool,
@@ -160,6 +187,17 @@ pub struct State {
     pub visualizer: bool,
     /// Whether to lock out inputs.
     pub lock: bool,
+
+    /// Visuals state.
+    pub visuals: Visuals,
+    pub sent_visuals: Option<Visuals>,
+    /// Global visuals brightness modifier
+    pub visuals_brightness: f32,
+    /// Visuals playback speed
+    pub visuals_speed: f32,
+
+    /// Whether the 4 directional buttons (shift) are held.
+    pub shift: [bool; 4],
 }
 
 impl State {
@@ -177,10 +215,17 @@ impl State {
             phi: 0.0,
             phi_mul: 1.0,
             beat: None,
+            beat_c0: 0.0,
+            beat_c1: 0.0,
 
             brightness: 1.0,
+            visuals_brightness: 1.0,
+            visuals_speed: 1.0,
+            visuals: Visuals { dj: Dj::Laptou, style: Style::Text, i: 0 },
+            sent_visuals: None,
             visualizer: false,
             lock: false,
+            shift: [false; 4],
         }
     }
 
@@ -202,70 +247,57 @@ impl State {
     pub fn beat_fr1(&self) -> Option<f32> {
         self.beat.map(|Beat { t1, pd1, .. }| self.beat_fr(t1, pd1))
     }
+    pub fn beat_e0(&self) -> f32 {
+        let mut v = self.beat_c0;
+        if let Some(Beat { t0, pd0, .. }) = self.beat {
+            let p = pd0.fr().max(1e-6); // Pd in beats (e.g., 4, 2, 1, 0.5, 0.25)
+            let dphi = ((self.t - t0).max(0.0)) * (self.bpm / 60.0) * self.phi_mul; // beats since tap
+            let u = (dphi / p).clamp(0.0, 1.0); // 0..1 progress across Pd
+            let e = 1.0 - (1.0 - u) * (1.0 - u); // ease-out quad (inline)
+            v = self.beat_c0 - (1.0 - e); // goes (N-1) -> N
+        }
+        v
+    }
+    pub fn beat_e1(&self) -> f32 {
+        let mut v = self.beat_c1;
+        if let Some(Beat { t1, pd1, .. }) = self.beat {
+            let p = pd1.fr().max(1e-6);
+            let dphi = ((self.t - t1).max(0.0)) * (self.bpm / 60.0) * self.phi_mul;
+            let u = (dphi / p).clamp(0.0, 1.0);
+            let e = 1.0 - (1.0 - u) * (1.0 - u);
+            v = self.beat_c1 - (1.0 - e);
+        }
+        v
+    }
 }
 
-///////////////////////// LOCKOUT /////////////////////////
+///////////////////////// VISUALS /////////////////////////
 
-#[derive(Clone, Copy, Debug, Default)]
-#[allow(unused)]
-pub enum Mode {
-    /// All off
-    #[default]
-    Off,
-    /// All on, solid color
-    On {
-        beams: Option<BeamPattern>,
-    },
-    /// TODO: ???
-    Hover,
-    /// Flashing to the beat
-    AutoBeat {
-        /// How often to flash
-        pd: Pd,
-        /// Brightness range for each flash, from 0..1
-        r: Range,
-        beam: BeamPattern,
-    },
-    /// Strobe lights
-    // HalfStrobe {
-    Strobe0 {
-        pd: Pd,
-        duty: f32,
-    },
-    Strobe1 {
-        pd: Pd,
-        duty: f32,
-    },
-    Strobe {
-        pd: Pd,
-        duty: f32,
-    },
-    Chase {
-        pd: Pd,
-        beam: BeamPattern,
-    },
-    ChaseSmooth {
-        pd: Pd,
-        beam: BeamPattern,
-    },
-    ChaseNotColorful {
-        pd: Pd,
-    },
-    // Twinkle {
-    //     pd: Pd,
-    // },
-    Whirl {
-        pd: Pd,
-    },
-    RaisingBeams {
-        pd: Pd,
-    },
-    Break {
-        beams: Option<BeamPattern>,
-    },
-    Twisting {
-        pd: Pd,
-    },
+#[derive(Clone, Copy, PartialEq)]
+pub struct Visuals {
+    dj: Dj,
+    style: Style,
+    i: usize,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Dj {
+    Laptou,
+    Chub,
+    Suzi,
+    MusicDJ102,
+    Helix,
+    Xuko,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Style {
+    Text,
+    Fractal,
+    Video,
+
+    Jump,
+    Mosh,
 }
 
 ///////////////////////// MANUAL BEAT /////////////////////////
@@ -290,11 +322,10 @@ pub fn tick(mut s: ResMut<State>, mut syn: ResMut<Synesthesia>, time: Res<Time>)
     let dt = time.delta_secs();
 
     s.t += dt;
-    s.phi = (s.phi + (dt * (s.bpm / 60.0) * s.phi_mul)).fmod(16.0);
+    s.phi += (s.bpm / 60.0) * s.phi_mul * dt;
 
-    // TODO: move these to the match on Preset
     {
-        let g: RgbGradient = s.palette.gradient(s).into();
+        let g: RgbGradient = s.preset.visuals_gradient(s).into();
         syn.set_ravy_vec3("palette_dc", g.dc);
         syn.set_ravy_vec3("palette_amp", g.amp);
         syn.set_ravy_vec3("palette_freq", g.freq);
@@ -302,6 +333,8 @@ pub fn tick(mut s: ResMut<State>, mut syn: ResMut<Synesthesia>, time: Res<Time>)
 
         // Send phase and beat
         syn.set_ravy_float("phi", s.phi);
+        syn.set_ravy_float("beat0", s.beat_fr0().unwrap_or(0.0));
+        syn.set_ravy_float("beat1", s.beat_fr1().unwrap_or(0.0));
         syn.set_ravy_float(
             "beat",
             if let Some(fr) = s.beat_fr0() {
@@ -312,8 +345,89 @@ pub fn tick(mut s: ResMut<State>, mut syn: ResMut<Synesthesia>, time: Res<Time>)
                 0.0
             },
         );
+        // Send beat counters
+        syn.set_ravy_float("beatC0", s.beat_c0);
+        syn.set_ravy_float("beatC1", s.beat_c1);
+        syn.set_ravy_float("beatE0", s.beat_e0());
+        syn.set_ravy_float("beatE1", s.beat_e1());
         // Send brightness mask
-        syn.set_ravy_float("mask", s.preset.visuals_mask(s));
+        syn.set_ravy_float("mask", s.visuals_brightness * s.preset.visuals_brightness(s));
+
+        syn.set_control("meta", "playbackspeed", s.visuals_speed);
+
+        // fonts ideas:
+        // - lily script
+        // - commando
+        // - babak
+        // - technique brk 800
+        // - rubik wet paint
+        // - pusab
+        // - rubik wet paint
+
+        if s.sent_visuals.is_none() || s.sent_visuals.is_some_and(|v| v != s.visuals) {
+            match s.visuals.style {
+                Style::Text => {
+                    let stub = match s.visuals.dj {
+                        Dj::Laptou => "laptou",
+                        Dj::Chub => "chub",
+                        Dj::Suzi => "suzi",
+                        Dj::MusicDJ102 => "music",
+                        Dj::Helix => "helix",
+                        Dj::Xuko => "xuko",
+                    };
+
+                    let media = format!("{stub}{}", (s.visuals.i % 5) + 1);
+                    let scene = match s.visuals.i % 6 {
+                        0 => "0textneontrail",
+                        1 => "0textphasorbloom",
+                        2 => "0textgrid0",
+                        3 => "0textgrid1",
+                        4 => "0textgrid2",
+                        5 => "0textgrid3",
+                        _ => unreachable!(),
+                    };
+                    syn.launch_scene(scene);
+                    syn.launch_media(&media);
+                }
+                Style::Fractal => {
+                    let scene = match s.visuals.i % 3 {
+                        0 => "0fractalmonster",
+                        1 => "0fractalblobs",
+                        2 => "0fractalpyramids",
+                        _ => unreachable!(),
+                    };
+                    syn.launch_scene(scene);
+                    if scene == "0fractalblobs" {
+                        syn.launch_media("music2");
+                    }
+                }
+                Style::Video => match s.visuals.i % 3 {
+                    0 => {
+                        syn.launch_scene("0videorainbowshift");
+                        syn.launch_media("tarzan");
+                    }
+                    1 => {
+                        syn.launch_scene("0videorainbowshift");
+                        syn.launch_media("lionking");
+                    }
+                    2 => {
+                        syn.launch_scene("0videorainbowshift");
+                        syn.launch_media("golfcart");
+                    }
+                    _ => unreachable!(),
+                },
+                Style::Jump => {
+                    syn.launch_scene("0textjump");
+                    syn.launch_media("jump");
+                }
+                Style::Mosh => {
+                    syn.launch_scene("0textmosh");
+                    syn.launch_media("mosh");
+                }
+            }
+
+            s.sent_visuals = Some(s.visuals);
+        }
     }
 }
 
@@ -335,27 +449,27 @@ pub fn render_lights<'a>(
     l.reset();
     {
         // Preset baseline colors
-        let c0 = s.preset.palette_color0(s);
-        let c1 = s.preset.palette_color1(s);
-        l.split(c0, c1);
+        l.for_each_beam(|beam, _i, _fr| beam.color = s.preset.beam_color(s));
+        l.for_each_spot(|spot, _i, _fr| spot.color = s.preset.spot_color(s));
 
         // Preset spot/beam shapers
-        l.for_each_spot(|par, i, fr| {
-            let env = s.preset.light_spots(s, i, fr);
-            par.color = par.color * env;
-        });
         l.for_each_beam(|beam, i, fr| {
-            let (env, pitch, yaw) = s.preset.light_beams(s, i, fr);
+            beam.color *= s.preset.beam_brightness(s, i, fr);
+
+            let pd = s.preset.visuals_pd().unwrap_or(Pd(4, 1));
+            let (pitch, yaw) = s.preset.beam_pattern().angles(s, pd, i, fr, beam.transform);
             beam.pitch = pitch;
             beam.yaw = yaw;
-            beam.color = beam.color * env;
+        });
+        l.for_each_spot(|spot, i, fr| {
+            spot.color *= s.preset.spot_brightness(s, i, fr);
         });
 
         // Global brightness
         l.map_colors(|c| c * s.brightness);
         // Global beat mask
-        l.for_each_spot(|par, _, _| par.color = par.color * s.beat_fr0().unwrap_or(1.0));
-        l.for_each_beam(|beam, _, _| beam.color = beam.color * s.beat_fr1().unwrap_or(1.0));
+        l.for_each_beam(|beam, _, _| beam.color = beam.color * s.beat_fr0().unwrap_or(1.0));
+        l.for_each_spot(|par, _, _| par.color = par.color * s.beat_fr1().unwrap_or(1.0));
     }
     l.send(&mut *e131);
 }
@@ -366,7 +480,71 @@ pub fn on_pad(mut s: ResMut<State>, mut pad: ResMut<Midi<LaunchpadX>>) {
     let s: &mut State = &mut *s;
     let pad: &mut Midi<LaunchpadX> = &mut *pad;
 
+    use launchpad_x::*;
+
     for input in pad.recv() {
+        // Handle shift keys
+        match input {
+            Input::Up(b) => s.shift[0] = b,
+            Input::Down(b) => s.shift[1] = b,
+            Input::Left(b) => s.shift[2] = b,
+            Input::Right(b) => s.shift[3] = b,
+            _ => {}
+        }
+
+        // Handle brightness/visuals keys
+        if let Some((x, y)) = input.xy() {
+            match (x, y) {
+                // No shift: change LIGHTS brightness
+                (8, y) if s.shift.iter().all(|b| !b) => {
+                    let fr = y as f32 / 7.0;
+                    s.brightness = fr;
+                }
+
+                // Shift 0: change PROJECTOR brightness
+                (8, y) if s.shift[0] => {
+                    let fr = y as f32 / 7.0;
+                    s.visuals_brightness = fr;
+                }
+
+                // Shift 1: change visuals SPEED
+                (8, y) if s.shift[1] => {
+                    let fr = y as f32 / 7.0;
+                    s.visuals_speed = 2.0 * fr;
+                }
+
+                // Shift 2: change VISUAL
+                (8, y) if s.shift[2] => {
+                    s.visuals.i += 1;
+                    match y {
+                        0 => s.visuals.style = Style::Text,
+                        1 => s.visuals.style = Style::Fractal,
+                        2 => s.visuals.style = Style::Video,
+
+                        4 => {
+                            s.visuals.style = Style::Jump;
+                        }
+                        5 => {
+                            s.visuals.style = Style::Mosh;
+                        }
+                        _ => {}
+                    };
+                }
+
+                // Shift 3: change DJ
+                (8, y) if s.shift[3] => match y {
+                    0 => s.visuals.dj = Dj::Xuko,
+                    1 => s.visuals.dj = Dj::Chub,
+                    2 => s.visuals.dj = Dj::Suzi,
+                    3 => s.visuals.dj = Dj::Helix,
+                    4 => s.visuals.dj = Dj::MusicDJ102,
+                    5 => s.visuals.dj = Dj::Laptou,
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+
         if let Some((x, y)) = input.xy() {
             debug!("Pad({x}, {y})");
 
@@ -392,16 +570,24 @@ pub fn on_pad(mut s: ResMut<State>, mut pad: ResMut<Midi<LaunchpadX>>) {
                         0 => {
                             beat.t0 = s.t;
                             beat.pd0 = *pd;
+                            s.beat_c0 += 1.0;
                         }
                         1 => {
                             beat.t1 = s.t;
                             beat.pd1 = *pd;
+                            s.beat_c1 += 1.0;
                         }
                         _ => unreachable!(),
                     },
                     None => match side {
-                        0 => s.beat = Some(Beat { t0: s.t, t1: 0.0, pd0: *pd, pd1: *pd }),
-                        1 => s.beat = Some(Beat { t0: 0.0, t1: s.t, pd0: *pd, pd1: *pd }),
+                        0 => {
+                            s.beat = Some(Beat { t0: s.t, t1: 0.0, pd0: *pd, pd1: *pd });
+                            s.beat_c0 += 1.0;
+                        }
+                        1 => {
+                            s.beat = Some(Beat { t0: 0.0, t1: s.t, pd0: *pd, pd1: *pd });
+                            s.beat_c1 += 1.0;
+                        }
                         _ => unreachable!(),
                     },
                 },
@@ -434,11 +620,76 @@ pub fn render_pad(mut s: ResMut<State>, mut pad: ResMut<Midi<LaunchpadX>>) {
         // Display bindings
         for PadBinding { xy: (x, y), op } in &s.bindings {
             match op {
-                PadOp::Preset(preset) => set(*x, *y, preset.pad_color(s) * preset.pad_env(s)),
-                PadOp::Palette(palette) => set(*x, *y, palette.color0(s)),
+                PadOp::Preset(preset) => set(*x, *y, preset.pad_color(s) * preset.pad_brightness(s)),
+                PadOp::Palette(palette) => set(*x, *y, palette.beam_color(s)),
+                PadOp::Beat { .. } => set(*x, *y, Rgbw::VIOLET),
                 PadOp::Func { color, .. } => set(*x, *y, *color),
-                _ => {}
             }
+        }
+
+        // Shift buttons
+        for x in 0..4 {
+            set(x, 8, if s.shift[x as usize] { Rgbw::WHITE } else { Rgbw::BLACK });
+        }
+
+        if s.shift[0] {
+            // Shift 0: change PROJECTOR brightness
+            for y in 0..8 {
+                let fr = y as f32 / 7.0;
+                let col = Rgb::hsv(s.phi(16, 1), 1.0, 1.0);
+                set(8, y, Rgbw::from(col) * fr);
+            }
+        } else if s.shift[1] {
+            // Shift 1: change visuals SPEED
+            for y in 0..8 {
+                let fr = y as f32 / 7.0;
+                let fr = s.pd(Pd(1, 4).mul(2)).square(1.0, 1.0 - fr.lerp(0.1..0.9));
+                set(8, y, Rgbw::WHITE * fr);
+            }
+        } else if s.shift[2] {
+            // Shift 2: change VISUAL
+            set(8, 0, Rgbw::RED);
+            set(8, 1, Rgbw::ORANGE);
+            set(8, 2, Rgbw::YELLOW);
+
+            set(8, 3, Rgbw::BLACK);
+
+            let fr = s.pd(Pd(1, 4).mul(2)).square(1.0, 0.5);
+            set(8, 4, Rgbw::WHITE * fr);
+            set(8, 5, Rgbw::RED * fr);
+
+            for i in 6..8 {
+                set(8, i, Rgbw::BLACK);
+            }
+        } else if s.shift[3] {
+            // Shift 3: change DJ
+            set(8, 0, Rgbw::MINT);
+            set(8, 1, Rgbw::CYAN);
+            set(8, 2, Rgbw::BLUE);
+            set(8, 3, Rgbw::VIOLET);
+            set(8, 4, Rgbw::MAGENTA);
+            set(8, 5, Rgbw::PINK);
+            for i in 6..8 {
+                set(8, i, Rgbw::BLACK);
+            }
+        } else {
+            // No shift: change LIGHTS brightness
+            for y in 0..8 {
+                let fr = y as f32 / 7.0;
+                set(8, y, Rgbw::WHITE * fr);
+            }
+        }
+
+        // TEMP: point at dj, center of floor
+        set(5, 8, Rgbw::WHITE);
+        set(4, 8, Rgbw::WHITE);
+
+        // Beat buttons
+        for i in 0..=4 {
+            // Upwards propagating wave at BPM
+            let col = Rgbw::VIOLET * (s.phi - i as f32 * 0.2).fsin(2.0);
+            set(0, i, col);
+            set(7, i, col);
         }
 
         // Beat indicator
@@ -462,12 +713,21 @@ pub fn render_pad(mut s: ResMut<State>, mut pad: ResMut<Midi<LaunchpadX>>) {
 
 ///////////////////////// CTRL INPUT /////////////////////////
 
-pub fn on_ctrl(mut s: ResMut<State>, mut ctrl: ResMut<Midi<LaunchControlXL>>, mut syn: ResMut<Synesthesia>) {
+pub fn on_ctrl(mut s: ResMut<State>, mut ctrl: ResMut<Midi<LaunchControlXL>>) {
     let s: &mut State = &mut *s;
 
     for input in ctrl.recv() {
         use launch_control_xl::*;
         debug!("ctrl: {input:?}");
+
+        //
+        // at venue
+        // - [~] point beams at center of floor
+        // - [ ] constant lower brightness for spots? * 0.2 globally?
+        // - [ ] put ChaseSmooth pattern to other presets for spots?
+        //
+        // backlog
+        // - [ ] auto preset switching
 
         match input {
             Input::Slider(7, fr) => s.brightness = fr,

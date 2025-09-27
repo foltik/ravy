@@ -74,6 +74,7 @@ impl DmxDevice for StealthBeam {
     }
 
     fn encode(&self, dmx: &mut [u8]) {
+        let dmx = &mut dmx[0..self.channels()];
         dmx.fill(0);
 
         dmx[0] = self.yaw.byte();

@@ -22,8 +22,9 @@ fn main() -> Result {
         .insert_resource(Midi::new("Launch Control XL", LaunchControlXL::default()))
         .insert_resource(E131::new("10.16.4.1")?)
         .insert_resource(State::default().tap_mut(|s| {
-            s.dmx.resize(256, 0);
+            s.dmx.resize(256, 255);
             s.device.resize(1, 0);
+            s.device_channel = 198;
         }))
         .run();
     Ok(())
@@ -71,9 +72,68 @@ pub enum DeviceType {
     Strobe, // (5  /  5ch?) Blizzard Max-L
 }
 
+impl DeviceType {
+    pub fn render(self, ch: u8, dmx: &mut [u8], rgb: (f32, f32, f32)) {
+        let rgb = (rgb.0.byte(), rgb.1.byte(), rgb.2.byte());
+        let dmx = &mut dmx[ch as usize..];
+        match self {
+            DeviceType::Manual => {}
+            DeviceType::Spot => {
+                dmx[0] = rgb.0;
+                dmx[1] = rgb.1;
+                dmx[2] = rgb.2;
+                // dmx[3] = rgbw.3;
+                dmx[3] = 0;
+                dmx[4] = 255;
+                dmx[5] = 255;
+            }
+            DeviceType::Beam => {
+                dmx[0] = 0;
+                dmx[1] = 0;
+                dmx[2] = 127;
+                dmx[3] = 0;
+                // match s.t.floor() as u64 % 8 {
+                //     0..4 => {
+                //         dmx[0] = s.t.tri(4.0).byte();
+                //         dmx[1] = 0;
+                //         dmx[2] = 0;
+                //         dmx[3] = 0;
+                //     }
+                //     4..8 => {
+                //         dmx[0] = 0;
+                //         dmx[1] = 0;
+                //         // dmx[2] = s.t.tri(4.0).byte();
+                //         dmx[1] = 0;
+                //         dmx[3] = 0;
+                //     }
+                //     _ => unreachable!(),
+                // }
+                dmx[4] = rgb.0;
+                dmx[5] = rgb.1;
+                dmx[6] = rgb.2;
+                // dmx[7] = rgbw.3;
+                dmx[7] = 0;
+                dmx[8] = 0;
+                dmx[9] = 255; // dimmer
+                dmx[10] = 255; // shutter
+            }
+            DeviceType::Strobe => {
+                dmx[0] = 255;
+                dmx[1] = 0;
+                dmx[2] = rgb.0;
+                dmx[3] = rgb.1;
+                dmx[4] = rgb.2;
+                // dmx[5] = 0;
+            }
+        };
+    }
+}
+
 ///////////////////////// TICK /////////////////////////
 
 pub fn tick(mut s: ResMut<State>, t: Res<Time>) {
+    s.t = t.elapsed_secs();
+    s.dt = t.delta_secs();
     let pd = s.pd.lerp(10.0..0.25);
     s.fr += t.delta_secs() / pd;
     s.fr = s.fr.fract();
@@ -108,6 +168,7 @@ pub fn render_lights(mut s: ResMut<State>, mut e131: ResMut<E131>) {
             s.device[2] = rgbw.2;
             s.device[3] = rgbw.3;
             s.device[4] = 255;
+            s.device[5] = 255;
         }
         DeviceType::Beam => {
             match s.t.floor() as u64 % 8 {
@@ -139,7 +200,7 @@ pub fn render_lights(mut s: ResMut<State>, mut e131: ResMut<E131>) {
             s.device[2] = rgb.0;
             s.device[3] = rgb.1;
             s.device[4] = rgb.2;
-            s.device[5] = 0;
+            // s.device[5] = 0;
         }
     };
 
@@ -147,7 +208,43 @@ pub fn render_lights(mut s: ResMut<State>, mut e131: ResMut<E131>) {
     let device_channels = s.device_channel..(s.device_channel + s.device.len());
     s.dmx[device_channels].copy_from_slice(&device);
 
-    e131.send(&s.device);
+    // info!("dmx[{}]={:?}", s.dmx.len(), &s.dmx);
+
+    s.dmx.fill(0);
+
+    let Rgb(r, g, b) = Rgb::hsv(s.fr, 1.0, 1.0);
+    let rgb = (r, g, b);
+
+    DeviceType::Spot.render(10, &mut s.dmx, rgb);
+    DeviceType::Spot.render(17, &mut s.dmx, rgb);
+    DeviceType::Spot.render(27, &mut s.dmx, rgb);
+    DeviceType::Spot.render(34, &mut s.dmx, rgb);
+    DeviceType::Spot.render(41, &mut s.dmx, rgb);
+    DeviceType::Spot.render(48, &mut s.dmx, rgb);
+    DeviceType::Spot.render(55, &mut s.dmx, rgb);
+    DeviceType::Spot.render(62, &mut s.dmx, rgb);
+
+    DeviceType::Beam.render(130, &mut s.dmx, rgb);
+    DeviceType::Beam.render(147, &mut s.dmx, rgb);
+    DeviceType::Beam.render(164, &mut s.dmx, rgb);
+    DeviceType::Beam.render(181, &mut s.dmx, rgb);
+    DeviceType::Beam.render(198, &mut s.dmx, rgb);
+    DeviceType::Beam.render(215, &mut s.dmx, rgb);
+
+    DeviceType::Strobe.render(239, &mut s.dmx, rgb);
+    DeviceType::Strobe.render(244, &mut s.dmx, rgb);
+    // NOTE: setting ch.244 to non-zero turns off the strobe on ch.239
+    // since channels overlap.
+
+    // let i = 197;
+    // // s.dmx.fill(0);
+    // s.dmx[i + 5] = 255;
+    // s.dmx[i + 6] = 255;
+    // s.dmx[i + 7] = 255;
+    // s.dmx[i + 10] = 255;
+    // s.dmx[i + 11] = 255;
+
+    e131.send(&s.dmx);
 }
 
 ///////////////////////// CTRL INPUT /////////////////////////
@@ -198,7 +295,7 @@ pub fn on_ctrl(mut s: ResMut<State>, mut ctrl: ResMut<Midi<LaunchControlXL>>) {
             Input::Device(true) => s.device_ty = DeviceType::Manual,
             Input::Mute(true) => {
                 s.device.clear();
-                s.device.resize(5, 0);
+                s.device.resize(6, 0);
                 s.device_ty = DeviceType::Spot;
             }
             Input::Solo(true) => {
@@ -208,7 +305,7 @@ pub fn on_ctrl(mut s: ResMut<State>, mut ctrl: ResMut<Midi<LaunchControlXL>>) {
             }
             Input::Record(true) => {
                 s.device.clear();
-                s.device.resize(6, 0);
+                s.device.resize(5, 0);
                 s.device_ty = DeviceType::Strobe;
             }
 
