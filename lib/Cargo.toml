@@ -17,5 +17,6 @@ rand.workspace = true
 midir.workspace = true
 rosc.workspace = true
 sacn.workspace = true
+artnet.workspace = true
 cpal.workspace = true
 rtrb.workspace = true

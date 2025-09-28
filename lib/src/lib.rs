@@ -3,6 +3,7 @@
 #![allow(clippy::eq_op)]
 #![allow(mixed_script_confusables)]
 
+mod artnet;
 mod audio;
 mod color;
 pub mod dmx;
@@ -27,6 +28,7 @@ pub mod prelude {
     pub use bevy_trait_query::{One, RegisterExt};
     pub use dyn_clone::{DynClone, clone_trait_object};
 
+    pub use crate::artnet::Artnet;
     pub use crate::audio::*;
     pub use crate::color::*;
     pub use crate::dmx::{DmxDevice, DmxUniverse};

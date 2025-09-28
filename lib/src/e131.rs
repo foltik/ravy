@@ -24,14 +24,15 @@ const DEFAULT_DMX_UNIVERSE: u16 = 1;
 #[derive(Resource)]
 pub struct E131 {
     src: SacnSource,
-    dest: IpAddr,
+    dest: SocketAddr,
 }
 
 impl E131 {
     /// Constructs a new E1.31 sender.
     pub fn new(dest_ip: &str) -> Result<Self> {
         let src_addr = SocketAddr::new("0.0.0.0".parse()?, 0);
-        let dest = dest_ip.parse().with_context(|| format!("failed to parse ip: {dest_ip:?}"))?;
+        let dest_ip: IpAddr = dest_ip.parse().with_context(|| format!("failed to parse ip: {dest_ip:?}"))?;
+        let dest = SocketAddr::new(dest_ip, DEFAULT_PORT);
 
         let mut src = SacnSource::with_ip("stagebridge", src_addr).map_err(|e| anyhow!("{e}"))?;
         src.register_universe(DEFAULT_DMX_UNIVERSE).unwrap();
@@ -43,9 +44,8 @@ impl E131 {
     pub fn send(&mut self, payload: &[u8]) {
         assert!(payload.len() <= 512);
 
-        let dest = SocketAddr::new(self.dest.clone(), DEFAULT_PORT);
-        if let Err(e) = self.src.send(&[DEFAULT_DMX_UNIVERSE], payload, None, Some(dest), None) {
-            error!("Failed to send E1.31 to {dest}: {e}");
+        if let Err(e) = self.src.send(&[DEFAULT_DMX_UNIVERSE], payload, None, Some(self.dest), None) {
+            error!("Failed to send E1.31 to {}: {e}", &self.dest);
         }
     }
 }

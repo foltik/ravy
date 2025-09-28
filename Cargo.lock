@@ -258,6 +258,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
+name = "artnet_protocol"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "686b971a57c02682e07fdb0866b09aad7df7054d9f3c3bb62a5eaa2092621367"
+dependencies = [
+ "bitflags 2.9.4",
+ "byteorder",
+]
+
+[[package]]
 name = "as-raw-xcb-connection"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3106,6 +3116,7 @@ name = "lib"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "artnet_protocol",
  "bevy",
  "bevy-inspector-egui",
  "bevy-trait-query",

@@ -21,6 +21,7 @@ fn main() -> Result {
         .add_systems(EguiPrimaryContextPass, draw_ui)
         .insert_resource(Midi::new("Launch Control XL", LaunchControlXL::default()))
         .insert_resource(E131::new("10.16.4.1")?)
+        .insert_resource(Artnet::new("10.0.0.11")?)
         .insert_resource(State::default().tap_mut(|s| {
             s.dmx.resize(256, 255);
             s.device.resize(1, 0);
@@ -70,6 +71,7 @@ pub enum DeviceType {
     Spot,   // (6  /  6ch?) Saber Spot RGB
     Beam,   // (11 / 16ch?) Eliminator Stealth RGB
     Strobe, // (5  /  5ch?) Blizzard Max-L
+    Hex,    // (6  /  6ch?) ADJ 12px Hex
 }
 
 impl DeviceType {
@@ -125,7 +127,30 @@ impl DeviceType {
                 dmx[4] = rgb.2;
                 // dmx[5] = 0;
             }
+            DeviceType::Hex => {
+                dmx[0] = rgb.0;
+                dmx[1] = rgb.1;
+                dmx[2] = rgb.2;
+                dmx[3] = 0;
+                dmx[4] = 0;
+                dmx[5] = 0;
+            }
         };
+    }
+
+    pub fn render2(self, ch: u8, dmx: &mut [u8], rgbwau: (u8, u8, u8, u8, u8, u8)) {
+        let dmx = &mut dmx[ch as usize..];
+        match self {
+            Self::Hex => {
+                dmx[0] = rgbwau.0;
+                dmx[1] = rgbwau.1;
+                dmx[2] = rgbwau.2;
+                dmx[3] = rgbwau.3;
+                dmx[4] = rgbwau.4;
+                dmx[5] = rgbwau.5;
+            }
+            _ => unreachable!(),
+        }
     }
 }
 
@@ -141,7 +166,7 @@ pub fn tick(mut s: ResMut<State>, t: Res<Time>) {
 
 ///////////////////////// LIGHTS /////////////////////////
 
-pub fn render_lights(mut s: ResMut<State>, mut e131: ResMut<E131>) {
+pub fn render_lights(mut s: ResMut<State>, mut e131: ResMut<E131>, mut artnet: ResMut<Artnet>) {
     if !s.persist {
         s.dmx.fill(0);
     }
@@ -159,6 +184,18 @@ pub fn render_lights(mut s: ResMut<State>, mut e131: ResMut<E131>) {
         2 => (0, 0, 255),
         _ => unreachable!(),
     };
+    let rgbwau = match s.t.floor() as u64 % 6 {
+        0 => (255, 0, 0, 0, 0, 0),
+        1 => (0, 255, 0, 0, 0, 0),
+        2 => (0, 0, 255, 0, 0, 0),
+        3 => (0, 0, 0, 255, 0, 0),
+        4 => (0, 0, 0, 0, 255, 0),
+        5 => (0, 0, 0, 0, 0, 255),
+        _ => unreachable!(),
+    };
+
+    let Rgb(r, g, b) = Rgb::hsv(s.fr, 1.0, 1.0);
+    let rgbwau = (r.byte(), g.byte(), b.byte(), 0, 0, 0);
 
     match s.device_ty {
         DeviceType::Manual => {}
@@ -202,6 +239,14 @@ pub fn render_lights(mut s: ResMut<State>, mut e131: ResMut<E131>) {
             s.device[4] = rgb.2;
             // s.device[5] = 0;
         }
+        DeviceType::Hex => {
+            s.device[0] = rgbwau.0;
+            s.device[1] = rgbwau.1;
+            s.device[2] = rgbwau.2;
+            s.device[3] = rgbwau.3;
+            s.device[4] = rgbwau.4;
+            s.device[5] = rgbwau.5;
+        }
     };
 
     let device = s.device.clone();
@@ -212,27 +257,42 @@ pub fn render_lights(mut s: ResMut<State>, mut e131: ResMut<E131>) {
 
     s.dmx.fill(0);
 
-    let Rgb(r, g, b) = Rgb::hsv(s.fr, 1.0, 1.0);
-    let rgb = (r, g, b);
+    DeviceType::Hex.render2(1, &mut s.dmx, rgbwau);
+    DeviceType::Hex.render2(7, &mut s.dmx, rgbwau);
+    DeviceType::Hex.render2(13, &mut s.dmx, rgbwau);
+    DeviceType::Hex.render2(19, &mut s.dmx, rgbwau);
+    DeviceType::Hex.render2(25, &mut s.dmx, rgbwau);
+    DeviceType::Hex.render2(31, &mut s.dmx, rgbwau);
+    DeviceType::Hex.render2(37, &mut s.dmx, rgbwau);
+    DeviceType::Hex.render2(43, &mut s.dmx, rgbwau);
+    DeviceType::Hex.render2(49, &mut s.dmx, rgbwau);
+    DeviceType::Hex.render2(55, &mut s.dmx, rgbwau);
+    DeviceType::Hex.render2(61, &mut s.dmx, rgbwau);
+    DeviceType::Hex.render2(67, &mut s.dmx, rgbwau);
+    DeviceType::Hex.render2(73, &mut s.dmx, rgbwau);
+    DeviceType::Hex.render2(79, &mut s.dmx, rgbwau);
 
-    DeviceType::Spot.render(10, &mut s.dmx, rgb);
-    DeviceType::Spot.render(17, &mut s.dmx, rgb);
-    DeviceType::Spot.render(27, &mut s.dmx, rgb);
-    DeviceType::Spot.render(34, &mut s.dmx, rgb);
-    DeviceType::Spot.render(41, &mut s.dmx, rgb);
-    DeviceType::Spot.render(48, &mut s.dmx, rgb);
-    DeviceType::Spot.render(55, &mut s.dmx, rgb);
-    DeviceType::Spot.render(62, &mut s.dmx, rgb);
+    // let Rgb(r, g, b) = Rgb::hsv(s.fr, 1.0, 1.0);
+    // let rgb = (r, g, b);
 
-    DeviceType::Beam.render(130, &mut s.dmx, rgb);
-    DeviceType::Beam.render(147, &mut s.dmx, rgb);
-    DeviceType::Beam.render(164, &mut s.dmx, rgb);
-    DeviceType::Beam.render(181, &mut s.dmx, rgb);
-    DeviceType::Beam.render(198, &mut s.dmx, rgb);
-    DeviceType::Beam.render(215, &mut s.dmx, rgb);
+    // DeviceType::Spot.render(10, &mut s.dmx, rgb);
+    // DeviceType::Spot.render(17, &mut s.dmx, rgb);
+    // DeviceType::Spot.render(27, &mut s.dmx, rgb);
+    // DeviceType::Spot.render(34, &mut s.dmx, rgb);
+    // DeviceType::Spot.render(41, &mut s.dmx, rgb);
+    // DeviceType::Spot.render(48, &mut s.dmx, rgb);
+    // DeviceType::Spot.render(55, &mut s.dmx, rgb);
+    // DeviceType::Spot.render(62, &mut s.dmx, rgb);
 
-    DeviceType::Strobe.render(239, &mut s.dmx, rgb);
-    DeviceType::Strobe.render(244, &mut s.dmx, rgb);
+    // DeviceType::Beam.render(130, &mut s.dmx, rgb);
+    // DeviceType::Beam.render(147, &mut s.dmx, rgb);
+    // DeviceType::Beam.render(164, &mut s.dmx, rgb);
+    // DeviceType::Beam.render(181, &mut s.dmx, rgb);
+    // DeviceType::Beam.render(198, &mut s.dmx, rgb);
+    // DeviceType::Beam.render(215, &mut s.dmx, rgb);
+
+    // DeviceType::Strobe.render(239, &mut s.dmx, rgb);
+    // DeviceType::Strobe.render(244, &mut s.dmx, rgb);
     // NOTE: setting ch.244 to non-zero turns off the strobe on ch.239
     // since channels overlap.
 
@@ -244,7 +304,8 @@ pub fn render_lights(mut s: ResMut<State>, mut e131: ResMut<E131>) {
     // s.dmx[i + 10] = 255;
     // s.dmx[i + 11] = 255;
 
-    e131.send(&s.dmx);
+    // e131.send(&s.dmx);
+    artnet.send(&s.dmx);
 }
 
 ///////////////////////// CTRL INPUT /////////////////////////
@@ -293,10 +354,15 @@ pub fn on_ctrl(mut s: ResMut<State>, mut ctrl: ResMut<Midi<LaunchControlXL>>) {
             }
 
             Input::Device(true) => s.device_ty = DeviceType::Manual,
+            // Input::(true) => {
+            //     s.device.clear();
+            //     s.device.resize(6, 0);
+            //     s.device_ty = DeviceType::Spot;
+            // }
             Input::Mute(true) => {
                 s.device.clear();
                 s.device.resize(6, 0);
-                s.device_ty = DeviceType::Spot;
+                s.device_ty = DeviceType::Hex;
             }
             Input::Solo(true) => {
                 s.device.clear();

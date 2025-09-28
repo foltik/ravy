@@ -25,6 +25,7 @@ rosc = "0.5"
 cpal = "0.16"
 rtrb = "0.3"
 sacn = { git = "https://github.com/RustLight/sacn" }
+artnet = { package = "artnet_protocol", version = "0.4" }
 rand = "0.8"
 itertools = "0.14"
 
