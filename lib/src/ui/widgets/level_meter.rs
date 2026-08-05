@@ -30,7 +30,7 @@ impl LevelMeter {
 
         // Frame
         painter.rect_filled(rect, 5.0, bg);
-        painter.rect_stroke(rect, 5.0, Stroke::new(1.0, fg_stroke), StrokeKind::Inside);
+        painter.rect_stroke(rect, 5.0, Stroke::new(1.0_f32, fg_stroke), StrokeKind::Inside);
 
         // Inner
         let inner = egui::Rect::from_min_max(
@@ -129,7 +129,7 @@ impl LevelMeter {
                     egui::pos2(inner.left() + 1.0, hy),
                     egui::pos2(inner.right() - 1.0, hy),
                 ],
-                Stroke::new(2.0, egui::Color32::WHITE),
+                Stroke::new(2.0_f32, egui::Color32::WHITE),
             );
         }
 
@@ -139,7 +139,7 @@ impl LevelMeter {
             painter.line_segment(
                 [egui::pos2(inner.left(), y), egui::pos2(inner.right(), y)],
                 Stroke::new(
-                    if i == 3 { 1.2 } else { 0.9 },
+                    if i == 3 { 1.2_f32 } else { 0.9 },
                     grid_col.linear_multiply(if i == 3 { 1.0 } else { 0.7 }),
                 ),
             );

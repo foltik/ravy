@@ -1,4 +1,4 @@
-use std::net::{IpAddr, SocketAddr, UdpSocket};
+use std::net::{SocketAddr, UdpSocket};
 
 use anyhow::Result;
 use artnet::{ArtCommand, Output, PortAddress};
