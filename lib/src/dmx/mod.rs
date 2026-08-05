@@ -7,6 +7,12 @@ pub trait DmxDevice {
     fn encode(&self, buf: &mut [u8]);
 }
 
+pub trait RdmDevice: DmxDevice {
+    const MANUFACTURER: u16;
+    const MODEL: u16;
+    const PERSONALITY: u8;
+}
+
 pub trait DmxUniverse {
     fn send(&self, e131: &mut E131);
 }

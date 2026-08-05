@@ -15,6 +15,7 @@ pub mod math;
 pub mod midi;
 mod osc;
 mod plugin;
+pub mod rdm;
 pub mod sim;
 mod synesthesia;
 mod tap;
@@ -32,7 +33,7 @@ pub mod prelude {
     pub use crate::artnet::Artnet;
     pub use crate::audio::*;
     pub use crate::color::*;
-    pub use crate::dmx::{DmxDevice, DmxUniverse};
+    pub use crate::dmx::{DmxDevice, DmxUniverse, RdmDevice};
     pub use crate::e131::E131;
     pub use crate::enttec::Enttec;
     pub use crate::gltf::*;
