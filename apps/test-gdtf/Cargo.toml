@@ -1,0 +1,16 @@
+[package]
+name = "test-gdtf"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "test-gdtf"
+path = "src/test_gdtf.rs"
+
+[dependencies]
+lib.workspace = true
+bevy.workspace = true
+argh.workspace = true
+anyhow.workspace = true
+zip.workspace = true
+roxmltree.workspace = true
