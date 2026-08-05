@@ -19,13 +19,17 @@ anyhow = "1"
 syn = "2"
 quote = "1"
 dyn-clone = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+roxmltree = "0.20"
 
 midir = "0.10"
+serialport = "4"
 rosc = "0.5"
 cpal = "0.16"
 rtrb = "0.3"
 sacn = { git = "https://github.com/RustLight/sacn" }
 artnet = { package = "artnet_protocol", version = "0.4" }
+v4l = "0.14"
 rand = "0.8"
 itertools = "0.14"
 

@@ -15,6 +15,7 @@ anyhow.workspace = true
 dyn-clone.workspace = true
 rand.workspace = true
 midir.workspace = true
+serialport.workspace = true
 rosc.workspace = true
 sacn.workspace = true
 artnet.workspace = true
