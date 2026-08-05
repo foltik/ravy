@@ -1,0 +1,13 @@
+[package]
+name = "test-rig-pro"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "test-rig-pro"
+path = "src/test_rig_pro.rs"
+
+[dependencies]
+lib.workspace = true
+bevy.workspace = true
+argh.workspace = true
