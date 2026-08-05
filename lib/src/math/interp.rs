@@ -65,6 +65,8 @@ pub trait Interp: Sized {
 
     /// Convert 0..1 to 0..255u8
     fn byte(self) -> u8;
+    /// Convert 0..1 to a 16-bit (coarse, fine) byte pair
+    fn coarse_fine(self) -> [u8; 2];
     /// Convert 0..1 to 0..127u8
     fn midi_byte(self) -> u8;
 }
@@ -155,5 +157,8 @@ impl Interp for f32 {
     }
     fn midi_byte(self) -> u8 {
         self.clamp(0.0, 1.0).lerp(0..127) as u8
+    }
+    fn coarse_fine(self) -> [u8; 2] {
+        ((self.clamp(0.0, 1.0) * 65535.0) as u16).to_be_bytes()
     }
 }
