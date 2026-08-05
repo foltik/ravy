@@ -1,0 +1,13 @@
+[package]
+name = "test-rdm"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "test-rdm"
+path = "src/test_rdm.rs"
+
+[dependencies]
+lib.workspace = true
+bevy.workspace = true
+argh.workspace = true
