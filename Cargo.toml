@@ -33,23 +33,36 @@ v4l = "0.14"
 rand = "0.8"
 itertools = "0.14"
 
-bevy-trait-query = "0.16"
-bevy_egui = "0.36"
-bevy-inspector-egui = "0.33"
-egui_dock = "0.17"
-egui_plot = "0.33"
+bevy-trait-query = "0.19"
+bevy_egui = "0.40"
+bevy-inspector-egui = "0.37"
+egui_dock = "0.19.1"
+egui_plot = "0.35"
 
 [workspace.dependencies.bevy]
-version = "0.16"
+version = "0.19"
 default-features = false
 features = [
     "bevy_log",
     "bevy_winit",
     "bevy_gltf",
+    "bevy_scene",
+    "bevy_pbr",
     "bevy_ui",
+    "bevy_ui_render",
     "bevy_picking",
+    "bevy_post_process",
+    # bevy-inspector-egui registers inspector impls for gizmo config types.
+    "bevy_gizmos",
+    "bevy_gizmos_render",
     "default_font",
-    "animation",
+    "bevy_animation",
+    "gltf_animation",
+    # Light cookies: PointLightTexture / SpotLightTexture / DirectionalLightTexture.
+    "pbr_light_textures",
+    # Populates the type registry, which the inspector reads. Part of bevy's
+    # default features, which we opt out of.
+    "reflect_auto_register",
     "tonemapping_luts",
     "jpeg",
     "png",

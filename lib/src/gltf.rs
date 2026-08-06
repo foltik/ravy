@@ -9,7 +9,7 @@ use bevy::ecs::archetype::Archetypes;
 use bevy::ecs::component::Components;
 use bevy::gltf::GltfNode;
 use bevy::prelude::*;
-use bevy::scene::SceneInstanceReady;
+use bevy::world_serialization::WorldInstanceReady;
 
 pub struct GltfScenePlugin;
 
@@ -122,7 +122,7 @@ impl GltfSceneBuilder {
 // Once a glTF is loaded from disk, spawn in the contained scene.
 fn load_gltfs_pre(
     mut cmds: Commands,
-    mut loaders: Query<(Entity, &GltfSceneLoader), Without<SceneRoot>>,
+    mut loaders: Query<(Entity, &GltfSceneLoader), Without<WorldAssetRoot>>,
     gltfs: Res<Assets<Gltf>>,
     mut animation_graphs: ResMut<Assets<AnimationGraph>>,
 ) {
@@ -133,14 +133,14 @@ fn load_gltfs_pre(
 
         assert_eq!(gltf.scenes.len(), 1, "glTF must have exactly one scene");
         cmds.entity(entity)
-            .insert(SceneRoot(gltf.scenes[0].clone()))
+            .insert(WorldAssetRoot(gltf.scenes[0].clone()))
             .observe(load_gltfs_post);
     }
 }
 
 // Once a glTF is loaded and its scene has been spawned, setup a GltfScene for it.
 fn load_gltfs_post(
-    trigger: Trigger<SceneInstanceReady>,
+    trigger: On<WorldInstanceReady>,
     mut cmds: Commands,
     children: Query<&Children>,
     names: Query<&Name>,
@@ -151,7 +151,7 @@ fn load_gltfs_post(
     gltfs: Res<Assets<Gltf>>,
     gltf_nodes: Res<Assets<GltfNode>>,
 ) {
-    let scene = trigger.target();
+    let scene = trigger.event_target();
 
     // unwrap(): we've ensured these are present in `load_gltfs_pre()`
     let mut loader = loaders.get_mut(scene).unwrap();
@@ -260,7 +260,7 @@ fn load_gltfs_post(
 }
 
 fn reload_gltfs(
-    mut asset_events: EventReader<AssetEvent<Gltf>>,
+    mut asset_events: MessageReader<AssetEvent<Gltf>>,
     children: Query<&Children>,
     mut cmds: Commands,
     scenes: Query<(Entity, &GltfSceneLoader)>,

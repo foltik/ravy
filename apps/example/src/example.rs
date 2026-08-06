@@ -1,4 +1,5 @@
-use bevy::core_pipeline::bloom::Bloom;
+use bevy::camera::Hdr;
+use bevy::post_process::bloom::Bloom;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use lib::prelude::*;
 
@@ -26,9 +27,8 @@ fn setup(mut cmds: Commands, assets: Res<AssetServer>) {
     info!("Hello, world!");
 
     GltfSceneBuilder::new()
-        .insert_on("Camera", (Tonemapping::TonyMcMapface, Bloom::NATURAL))
+        .insert_on("Camera", (Hdr, Tonemapping::TonyMcMapface, Bloom::NATURAL))
         .camera(|cam| {
-            cam.hdr = true;
             cam.clear_color = ClearColorConfig::Custom(Color::BLACK);
         })
         .spawn("Default.glb", &mut cmds, &assets);

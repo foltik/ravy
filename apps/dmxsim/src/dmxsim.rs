@@ -1,7 +1,8 @@
 use std::collections::VecDeque;
 use std::f32::consts::FRAC_PI_2;
 
-use bevy::core_pipeline::bloom::Bloom;
+use bevy::camera::Hdr;
+use bevy::post_process::bloom::Bloom;
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::math::primitives::{ConicalFrustum, Cuboid, Cylinder, Sphere};
 use egui_plot::{Line, Plot, PlotPoints}; // <- plotting
@@ -406,14 +407,15 @@ fn setup(mut commands: Commands) {
     // Camera with a nice angle & HDR + Bloom (no fog)
     commands.spawn((
         Camera3d::default(),
-        Camera { hdr: true, clear_color: ClearColorConfig::Custom(Color::BLACK), ..default() },
+        Camera { clear_color: ClearColorConfig::Custom(Color::BLACK), ..default() },
+        Hdr,
         Bloom::NATURAL,
         Tonemapping::TonyMcMapface,
         DebandDither::Enabled,
         Transform::from_xyz(8.0, 6.0, 12.0).looking_at(Vec3::new(0.0, 4.0, 0.0), Vec3::Y),
     ));
 
-    commands.insert_resource(AmbientLight { color: Color::WHITE, brightness: 200.0, ..Default::default() });
+    commands.insert_resource(GlobalAmbientLight { color: Color::WHITE, brightness: 200.0, ..Default::default() });
 }
 
 //
@@ -499,7 +501,7 @@ fn spawn_fixture_if_needed(
                         inner_angle: 0.6,
                         outer_angle: 20.0_f32.to_radians(),
                         radius: 0.015,
-                        shadows_enabled: true,
+                        shadow_maps_enabled: true,
                         ..default()
                     },
                 ));
@@ -704,7 +706,7 @@ fn apply_pose_to_scene(
 
     // Lens emissive tint (bloom)
     if let Ok(BeamLensMat(h)) = lens_q.single() {
-        if let Some(m) = mats.get_mut(h) {
+        if let Some(mut m) = mats.get_mut(h) {
             let [r, g, b, _w_unused] = state.color_rgbw;
             m.emissive = Color::srgb(r * 6.0, g * 6.0, b * 6.0).into();
         }
@@ -712,12 +714,12 @@ fn apply_pose_to_scene(
 
     // Frustum: recolor + rebuild mesh if needed; keep center where we want it
     if let Ok((BeamFrustumMesh(mesh_h), BeamFrustumMat(mat_h), mut t)) = sets.p3().single_mut() {
-        if let Some(m) = mats.get_mut(mat_h) {
+        if let Some(mut m) = mats.get_mut(mat_h) {
             let [r, g, b, _w_unused] = state.color_rgbw;
             m.base_color = Color::srgba(r, g, b, 0.18);
         }
 
-        if let Some(m) = meshes.get_mut(mesh_h) {
+        if let Some(mut m) = meshes.get_mut(mesh_h) {
             let end_r = (LENS_RAD + FRUSTUM_LEN * (outer * 0.5).max(0.0001).tan()).max(LENS_RAD + 0.001);
             *m = Mesh::from(ConicalFrustum {
                 height: FRUSTUM_LEN,

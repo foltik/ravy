@@ -1,4 +1,4 @@
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Pd(pub usize, pub usize);
 impl Pd {
     pub fn fr(&self) -> f32 {

@@ -23,7 +23,19 @@ pub struct Gdtf {
     pub images: HashMap<String, Vec<u8>>,
     /// Colour/gobo/prism wheels, keyed by name.
     pub wheels: HashMap<String, Vec<Slot>>,
+    /// The LED colours the fixture mixes from.
+    pub emitters: Vec<Emitter>,
     pub rdm: Option<Rdm>,
+}
+
+pub struct Emitter {
+    pub name: String,
+    /// CIE xyY, of which only the chromaticity is meaningful: every emitter
+    /// declares the same nominal Y.
+    pub color: Vec3,
+    /// Peak luminous intensity in candela, measured at one reference zoom.
+    /// Only the ratios between emitters are usable without knowing which.
+    pub intensity: f32,
 }
 
 pub struct Slot {
@@ -196,6 +208,22 @@ impl Gdtf {
             wheels.insert(w.attribute("Name").unwrap_or_default().to_string(), slots);
         }
 
+        // Emitters sit under <PhysicalDescriptions>, not at the top level.
+        let emitters = ft
+            .descendants()
+            .filter(|e| e.has_tag_name("Emitter"))
+            .filter_map(|e| {
+                Some(Emitter {
+                    name: e.attribute("Name").unwrap_or_default().to_string(),
+                    color: parse_cie(e.attribute("Color")?)?,
+                    intensity: e
+                        .children()
+                        .find(|m| m.has_tag_name("Measurement"))
+                        .map_or(1.0, |m| attr_f32(m, "LuminousIntensity")),
+                })
+            })
+            .collect();
+
         let rdm = ft.descendants().find(|n| n.has_tag_name("FTRDM")).map(|n| Rdm {
             manufacturer: attr_hex(n, "ManufacturerID"),
             model: attr_hex(n, "DeviceModelID"),
@@ -218,6 +246,7 @@ impl Gdtf {
             meshes,
             images,
             wheels,
+            emitters,
             rdm,
         })
     }
@@ -321,6 +350,22 @@ impl Channel {
         f.physical.0 + t * (f.physical.1 - f.physical.0)
     }
 
+    /// Position within the channel's whole physical range, 0 at its low end.
+    /// The GDTF's declared endpoints are nominal, so a curve measured across the
+    /// travel is indexed by this rather than by the degrees it claims.
+    ///
+    /// The range spans every function, not the one the value lands in: one
+    /// continuous sweep is often cut into several, and measuring each apart
+    /// would run the curve from end to end once per piece.
+    pub fn fraction(&self, value: u32) -> f32 {
+        let ends = self.functions.iter().flat_map(|f| [f.physical.0, f.physical.1]);
+        let (lo, hi) = ends.fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(v), hi.max(v)));
+        match hi > lo {
+            true => ((self.physical(value) - lo) / (hi - lo)).clamp(0.0, 1.0),
+            false => 0.0,
+        }
+    }
+
     /// Wheel and 0-based slot selected at `value`, if this channel picks one.
     /// The continuous-rotation ranges select no slot.
     pub fn slot(&self, value: u32) -> Option<(&str, usize)> {
@@ -332,12 +377,7 @@ impl Channel {
     }
 
     pub fn label(&self) -> String {
-        let slots = self
-            .offsets
-            .iter()
-            .map(usize::to_string)
-            .collect::<Vec<_>>()
-            .join("/");
+        let slots = self.offsets.iter().map(usize::to_string).collect::<Vec<_>>().join("/");
         format!("{slots}  {} ({})", self.attribute, self.geometry)
     }
 }
@@ -473,18 +513,12 @@ fn attr_f32(n: roxmltree::Node, name: &str) -> f32 {
 }
 
 fn image_name(file: &str) -> String {
-    let stem: String = file
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect();
+    let stem: String = file.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
     format!("{stem}.png")
 }
 
 /// GDTF model names are free-form, so squash them into a safe asset path.
 fn asset_name(file: &str) -> String {
-    let stem: String = file
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect();
+    let stem: String = file.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
     format!("{stem}.glb")
 }

@@ -1,6 +1,6 @@
-use bevy::render::camera::Viewport;
+use bevy::camera::Viewport;
 use bevy::window::PrimaryWindow;
-use bevy_egui::{EguiContext, EguiContextSettings, PrimaryEguiContext};
+use bevy_egui::{EguiContext, PrimaryEguiContext};
 use bevy_inspector_egui::bevy_egui;
 use bevy_inspector_egui::bevy_inspector::hierarchy::SelectedEntities;
 use egui_dock::{DockArea, DockState, NodeIndex, Style};
@@ -60,7 +60,7 @@ impl egui_dock::TabViewer for TabViewer<'_> {
 
         match tab {
             Tab::Viewport => ui.viewport = egui.clip_rect(),
-            Tab::Entities  => inspector::draw_entities(egui, world, &types, ui),
+            Tab::Entities  => inspector::draw_entities(egui, world, ui),
             Tab::Inspector => inspector::draw(egui, world, &types, ui),
             Tab::Audio     => audio_inspector::draw(egui, world),
             Tab::Resources => inspector::draw_resources(egui, &types, ui),
@@ -91,9 +91,20 @@ pub fn draw(world: &mut World) {
         let mut dock = ui.dock.take().unwrap();
         let mut tab_viewer = TabViewer { world, ui: &mut *ui };
 
+        // A hand-rolled root Ui: the Context-level panel show() is deprecated,
+        // and outside eframe this is what its replacement expects.
+        let mut root = egui::Ui::new(
+            egui.clone(),
+            egui::Id::new("dock_root"),
+            egui::UiBuilder::new()
+                .layer_id(egui::LayerId::background())
+                .max_rect(egui.content_rect()),
+        );
+        root.set_clip_rect(egui.content_rect());
+
         DockArea::new(&mut dock)
-            .style(Style::from_egui(&egui.style()))
-            .show(egui, &mut tab_viewer);
+            .style(Style::from_egui(&egui.global_style()))
+            .show_inside(&mut root, &mut tab_viewer);
 
         ui.dock = Some(dock);
     });
@@ -104,9 +115,8 @@ pub fn update_viewport(
     ui_state: Res<Ui>,
     window: Single<&Window, With<PrimaryWindow>>,
     mut cam: Single<&mut Camera, Without<PrimaryEguiContext>>,
-    egui_settings: Single<&EguiContextSettings>,
 ) {
-    let scale_factor = window.scale_factor() * egui_settings.scale_factor;
+    let scale_factor = window.scale_factor();
 
     let viewport_pos = ui_state.viewport.left_top().to_vec2() * scale_factor;
     let viewport_size = ui_state.viewport.size() * scale_factor;

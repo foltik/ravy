@@ -1,5 +1,4 @@
 use super::MidiDevice;
-use crate::midi::Midi;
 
 pub mod types;
 use types::*;
@@ -120,7 +119,7 @@ impl MidiDevice for LaunchControlXL {
     type Input = Input;
     type Output = Output;
 
-    fn init(ctrl: &mut Midi<Self>) {
+    fn init(&mut self) -> Vec<Output> {
         use types::*;
 
         let mut batch = vec![];
@@ -139,7 +138,7 @@ impl MidiDevice for LaunchControlXL {
         batch.push((Led::Mute, Color::Red, Brightness::Off));
         batch.push((Led::Solo, Color::Red, Brightness::Off));
         batch.push((Led::Record, Color::Red, Brightness::Off));
-        ctrl.send(Output::Batch(batch));
+        vec![Output::Batch(batch)]
     }
 
     fn process_input(&mut self, raw: &[u8]) -> Option<Input> {
@@ -212,9 +211,5 @@ fn float(v: u8) -> f32 {
 }
 
 fn float_diverging(v: u8) -> f32 {
-    if v >= 0x40 {
-        ((v - 0x40) as f32) / 63.0
-    } else {
-        -1.0 + ((v as f32) / 64.0)
-    }
+    if v >= 0x40 { ((v - 0x40) as f32) / 63.0 } else { -1.0 + ((v as f32) / 64.0) }
 }

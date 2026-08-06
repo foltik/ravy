@@ -5,6 +5,7 @@
 //!
 //! https://www.chauvetprofessional.com/products/rogue-outcast-1-beamwash/
 
+use crate::gdtf::{GdtfDevice, motion};
 use crate::prelude::*;
 
 #[derive(Clone, Copy, Debug, Component)]
@@ -90,6 +91,31 @@ impl Default for OutcastBeamwash {
             center_strobe: Self::SHUTTER_OPEN,
             zoom: 0.5,
         }
+    }
+}
+
+impl GdtfDevice for OutcastBeamwash {
+    const KIND: &'static str = "OutcastBeamwash";
+    const MODE: &'static str = "37Ch Mode";
+
+    fn motion() -> [motion::Params; 3] {
+        [
+            motion::Params {
+                v_max: 500.0,
+                a_max: 800.0,
+                j_max: 50_000.0,
+                small: 0.0,
+                ..motion::Params::pan()
+            },
+            motion::Params {
+                v_max: 470.0,
+                a_max: 1500.0,
+                j_max: 70_000.0,
+                small: 0.0,
+                ..motion::Params::tilt()
+            },
+            motion::Params { v_max: 180.0, a_max: 500.0, j_max: 0.0, ..motion::Params::zoom() },
+        ]
     }
 }
 

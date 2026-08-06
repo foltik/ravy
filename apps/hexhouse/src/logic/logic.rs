@@ -8,7 +8,7 @@ use lib::prelude::*;
 // use rand::Rng;
 // use rand::rngs::ThreadRng;
 use super::palette::Palette;
-use super::preset::Preset;
+use super::preset::{On, Preset};
 use crate::lights::Lights;
 use crate::logic::{BeamPattern, PadBinding, PadOp};
 use crate::{DiscoBall, FixtureChannel, FixtureIndex};

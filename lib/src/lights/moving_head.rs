@@ -38,7 +38,7 @@ pub fn setup_pre(
     for (entity, device) in fixtures {
         cmds.entity(entity).remove::<GltfSceneLoader>();
         cmds.entity(entity).remove::<GltfScene>();
-        cmds.entity(entity).remove::<SceneRoot>();
+        cmds.entity(entity).remove::<WorldAssetRoot>();
         for child in children.iter_descendants(entity) {
             cmds.entity(child).try_despawn();
         }
@@ -95,7 +95,7 @@ pub fn setup_post(
                             outer_angle: device.beam_angle().to_radians(),
                             range: device.range(),
                             radius: 0.0,
-                            shadows_enabled: false,
+                            shadow_maps_enabled: false,
                             ..Default::default()
                         },
                         Transform::from_rotation(Quat::from_rotation_y(-TAU / 4.0)),
@@ -150,7 +150,7 @@ pub fn update(
         light.color = Color::linear_rgb(r, g, b);
         light.intensity = device.intensity() * color.luminance();
 
-        let material = materials.get_mut(&fixture.material).unwrap();
+        let mut material = materials.get_mut(&fixture.material).unwrap();
         let s_emit = device.intensity() * 0.001 * color.luminance();
         let s_alpha = 0.08 * color.luminance();
         material.base_color.set_alpha(s_alpha);

@@ -1,4 +1,5 @@
-use bevy::core_pipeline::bloom::Bloom;
+use bevy::camera::Hdr;
+use bevy::post_process::bloom::Bloom;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use lib::lights::fixture::{SaberSpot, StealthBeam};
 use lib::midi::device::launch_control_xl::LaunchControlXL;
@@ -126,9 +127,8 @@ fn setup_scene(
     };
 
     let (cam_ent, mut cam) = camera.single_mut().unwrap();
-    cam.hdr = true;
     cam.clear_color = ClearColorConfig::Custom(Color::BLACK);
-    cmds.entity(cam_ent).insert((Tonemapping::TonyMcMapface, Bloom::NATURAL));
+    cmds.entity(cam_ent).insert((Hdr, Tonemapping::TonyMcMapface, Bloom::NATURAL));
 
     for (name, entity) in scene.nodes().filter(|(name, _)| name.starts_with("Mover Ch.")) {
         debug!("Mover: {entity}");

@@ -1,4 +1,5 @@
-use bevy::core_pipeline::bloom::Bloom;
+use bevy::camera::Hdr;
+use bevy::post_process::bloom::Bloom;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use lib::prelude::*;
 
@@ -62,6 +63,7 @@ fn setup(mut cmds: Commands, assets: Res<AssetServer>) {
         .insert_on(
             "Camera",
             (
+                Hdr,
                 Tonemapping::TonyMcMapface,
                 Bloom::NATURAL,
                 // VolumetricFog { step_count: 256, jitter: 0.1, ..Default::default() },
@@ -80,7 +82,6 @@ fn setup(mut cmds: Commands, assets: Res<AssetServer>) {
             // (VolumetricLight, Bob::default()),
         )
         .camera(|cam| {
-            cam.hdr = true;
             cam.clear_color = ClearColorConfig::Custom(Color::BLACK);
         })
         .spawn("Jungle.glb", &mut cmds, &assets);
@@ -90,7 +91,7 @@ fn setup(mut cmds: Commands, assets: Res<AssetServer>) {
         SpotLight {
             intensity: 50000.0, // lumens
             color: GREEN.into(),
-            shadows_enabled: true,
+            shadow_maps_enabled: true,
             inner_angle: 0.35,
             outer_angle: 0.85,
             ..default()
@@ -175,7 +176,7 @@ pub fn setup_lights(
                         color: Color::WHITE,
                         range: 10.0, // small local influence
                         radius: 0.0,
-                        shadows_enabled: false,
+                        shadow_maps_enabled: false,
                         ..default()
                     },
                     // Your component

@@ -4,6 +4,7 @@
 //!
 //! https://www.chauvetprofessional.com/products/colorado-1-solo/
 
+use crate::gdtf::{GdtfDevice, motion};
 use crate::prelude::*;
 
 #[derive(Clone, Copy, Debug, Component)]
@@ -35,6 +36,17 @@ impl DmxDevice for ColoradoSolo {
         dmx[14] = self.zoom.byte(); // 15
         // 16 zoom control and 17 dimmer speed stay 0: nonzero ch17 kills
         // output on this firmware despite what the chart says
+    }
+}
+
+impl GdtfDevice for ColoradoSolo {
+    const KIND: &'static str = "ColoradoSolo";
+    const MODE: &'static str = "STD Y";
+
+    fn motion() -> [motion::Params; 3] {
+        let zoom =
+            motion::Params { v_max: 120.0, a_max: 800.0, j_max: 13_000.0, ..motion::Params::zoom() };
+        [motion::Params::pan(), motion::Params::tilt(), zoom]
     }
 }
 

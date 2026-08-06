@@ -44,10 +44,9 @@ pub fn draw(egui: &mut egui::Ui, world: &mut World, types: &TypeRegistry, ui: &m
     }
 }
 
-pub fn draw_entities(egui: &mut egui::Ui, world: &mut World, types: &TypeRegistry, ui: &mut Ui) {
+pub fn draw_entities(egui: &mut egui::Ui, world: &mut World, ui: &mut Ui) {
     let selected = Hierarchy {
         world,
-        type_registry: types,
         selected: &mut ui.selected,
         context_menu: None,
         shortcircuit_entity: None,

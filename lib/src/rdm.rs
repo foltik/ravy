@@ -200,7 +200,17 @@ fn build_rdm(dest: Uid, src: Uid, tn: u8, cc: u8, pid: u16, pd: &[u8]) -> Vec<u8
     msg.extend_from_slice(&[0xCC, 0x01, 24 + pd.len() as u8]);
     msg.extend_from_slice(&dest.0);
     msg.extend_from_slice(&src.0);
-    msg.extend_from_slice(&[tn, 0x01, 0x00, 0x00, 0x00, cc, (pid >> 8) as u8, pid as u8, pd.len() as u8]);
+    msg.extend_from_slice(&[
+        tn,
+        0x01,
+        0x00,
+        0x00,
+        0x00,
+        cc,
+        (pid >> 8) as u8,
+        pid as u8,
+        pd.len() as u8,
+    ]);
     msg.extend_from_slice(pd);
     let cs: u16 = msg.iter().map(|&b| b as u16).fold(0u16, u16::wrapping_add);
     msg.extend_from_slice(&cs.to_be_bytes());
@@ -339,9 +349,13 @@ impl RdmWidget {
                 Ok(1) if byte[0] == SOM => {}
                 _ => continue,
             }
-            let Some(hdr) = self.read_exact(3, deadline) else { return None };
+            let Some(hdr) = self.read_exact(3, deadline) else {
+                return None;
+            };
             let length = hdr[1] as usize | ((hdr[2] as usize) << 8);
-            let Some(data) = self.read_exact(length, deadline) else { return None };
+            let Some(data) = self.read_exact(length, deadline) else {
+                return None;
+            };
             match self.read_exact(1, deadline) {
                 Some(end) if end[0] == EOM => return Some((hdr[0], data)),
                 _ => continue, // resync
@@ -411,11 +425,15 @@ impl RdmWidget {
             }
             let deadline = Instant::now() + REQUEST_TIMEOUT;
             while Instant::now() < deadline {
-                let Some((label, data)) = self.read_frame(deadline - Instant::now()) else { break };
+                let Some((label, data)) = self.read_frame(deadline - Instant::now()) else {
+                    break;
+                };
                 if label != LABEL_RECEIVED || data.len() < 2 {
                     continue; // skip status frames (e.g. label 0x0C from 2.4 firmware)
                 }
-                let Some(resp) = parse_response(&data[1..]) else { continue };
+                let Some(resp) = parse_response(&data[1..]) else {
+                    continue;
+                };
                 if resp.response_type == RESPONSE_ACK_TIMER {
                     std::thread::sleep(Duration::from_millis(250));
                     break; // retry the request

@@ -1,7 +1,5 @@
 use std::fmt::Debug;
 
-use super::Midi;
-
 pub trait MidiDevice: Sized + Send + 'static {
     type Input: Send + Debug;
     type Output: Send + Debug;
@@ -9,7 +7,10 @@ pub trait MidiDevice: Sized + Send + 'static {
     fn process_input(&mut self, data: &[u8]) -> Option<Self::Input>;
     fn process_output(&mut self, output: Self::Output) -> Vec<u8>;
 
-    fn init(_midi: &mut Midi<Self>) {}
+    /// Outputs sent on every (re)connect.
+    fn init(&mut self) -> Vec<Self::Output> {
+        vec![]
+    }
 }
 
 pub mod launch_control_xl;

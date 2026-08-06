@@ -5,6 +5,7 @@
 //!
 //! https://www.adj.com/products/hydro-spot-1
 
+use crate::gdtf::{GdtfDevice, motion};
 use crate::prelude::*;
 
 #[derive(Clone, Copy, Debug, Component)]
@@ -125,6 +126,19 @@ impl Default for HydroSpot {
             dimmer_mode: 0,
             dim_curve: 30, // linear
         }
+    }
+}
+
+impl GdtfDevice for HydroSpot {
+    const KIND: &'static str = "HydroSpot";
+    const MODE: &'static str = "22 CH";
+
+    fn motion() -> [motion::Params; 3] {
+        [
+            motion::Params { v_max: 380.0, a_max: 700.0, j_max: 40_000.0, ..motion::Params::pan() },
+            motion::Params { v_max: 450.0, a_max: 600.0, j_max: 70_000.0, ..motion::Params::tilt() },
+            motion::Params { v_max: 100.0, a_max: 0.0, j_max: 0.0, ..motion::Params::zoom() },
+        ]
     }
 }
 

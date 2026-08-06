@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use super::MidiDevice;
 use crate::color::Rgb;
 use crate::math::{Byte, Interp};
-use crate::midi::Midi;
 
 pub mod types;
 use types::*;
@@ -102,10 +101,12 @@ impl MidiDevice for LaunchpadX {
     type Input = Input;
     type Output = Output;
 
-    fn init(pad: &mut Midi<Self>) {
-        pad.send(Output::Mode(PadMode::Programmer));
-        pad.send(Output::Pressure(Pressure::Polyphonic, PressureCurve::Medium));
-        pad.send(Output::Clear);
+    fn init(&mut self) -> Vec<Output> {
+        vec![
+            Output::Mode(PadMode::Programmer),
+            Output::Pressure(Pressure::Polyphonic, PressureCurve::Medium),
+            Output::Clear,
+        ]
     }
 
     fn process_input(&mut self, raw: &[u8]) -> Option<Input> {

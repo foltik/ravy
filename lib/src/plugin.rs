@@ -1,5 +1,5 @@
+use bevy::asset::io::AssetSourceBuilder;
 use bevy::asset::io::memory::{Dir, MemoryAssetReader};
-use bevy::asset::io::{AssetSource, AssetSourceId};
 use bevy::window::WindowMode;
 
 use crate::prelude::*;
@@ -22,10 +22,12 @@ impl Plugin for RavyPlugin {
         // XXX: fix the data flow
         let models = Dir::default();
         let reader = MemoryAssetReader { root: models.clone() };
-        app.register_asset_source(
-            AssetSourceId::from_static("memory"),
-            AssetSource::build().with_reader(move || Box::new(reader.clone())),
-        );
+        app.register_asset_source("memory", AssetSourceBuilder::new(move || Box::new(reader.clone())));
+
+        // Part meshes unpacked from .gdtf archives at runtime.
+        let gdtf_models = Dir::default();
+        let reader = MemoryAssetReader { root: gdtf_models.clone() };
+        app.register_asset_source("gdtf", AssetSourceBuilder::new(move || Box::new(reader.clone())));
 
         app.add_plugins(DefaultPlugins.set(bevy::log::LogPlugin {
             filter: format!("{deps_log_level},{}={app_log_level}", self.module),
@@ -36,6 +38,7 @@ impl Plugin for RavyPlugin {
         .add_plugins(super::ui::UiPlugin)
         .add_plugins(super::sim::SimPlugin)
         .add_plugins(super::lights::LightsPlugin { models })
+        .add_plugins(super::gdtf::GdtfPlugin { models: gdtf_models })
         .add_systems(PreUpdate, hotkeys);
     }
 }
@@ -44,7 +47,7 @@ pub fn hotkeys(
     keys: Res<ButtonInput<KeyCode>>,
     mut ui: ResMut<Ui>,
     mut window: Single<&mut Window>,
-    mut exit: EventWriter<AppExit>,
+    mut exit: MessageWriter<AppExit>,
 ) {
     if keys.pressed(KeyCode::ShiftLeft) && keys.just_pressed(KeyCode::KeyQ) {
         exit.write(AppExit::Success);

@@ -1,9 +1,10 @@
-use std::sync::{Mutex, mpsc};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use midir::{MidiInput, MidiInputConnection, MidiOutput};
 
 use crate::prelude::*;
@@ -11,83 +12,54 @@ use crate::prelude::*;
 pub mod device;
 pub use device::MidiDevice;
 
-/// A MIDI device.
-#[derive(Resource)]
-pub enum Midi<D: MidiDevice> {
-    Connected {
-        in_rx: Mutex<mpsc::Receiver<D::Input>>,
-        out_tx: Mutex<mpsc::Sender<D::Output>>,
+/// How often to scan ports for hotplug (dis)connects.
+const RESCAN: Duration = Duration::from_millis(100);
 
-        _raw: MidiRaw,
-        _thread: JoinHandle<()>,
-    },
-    Disconnected,
+/// A MIDI device, connected and reconnected in the background as it hotplugs.
+#[derive(Resource)]
+pub struct Midi<D: MidiDevice> {
+    name: String,
+    in_rx: Mutex<mpsc::Receiver<D::Input>>,
+    out_tx: Mutex<mpsc::Sender<D::Output>>,
+    connected: Arc<AtomicBool>,
 }
 
 impl<D: MidiDevice> Midi<D> {
-    /// Try to open a MIDI device.
-    pub fn new(name: &str, mut device: D) -> Self {
-        match MidiRaw::connect(name) {
-            Ok((_raw, raw_rx, raw_tx)) => {
-                let (in_tx, in_rx) = mpsc::channel::<D::Input>();
-                let (out_tx, out_rx) = mpsc::channel::<D::Output>();
+    /// Open a MIDI device by port name. Always succeeds: a supervisor thread
+    /// connects whenever a matching port is present and reconnects on unplug,
+    /// resending `D::init` each time.
+    pub fn new(name: &str, device: D) -> Self {
+        let (in_tx, in_rx) = mpsc::channel::<D::Input>();
+        let (out_tx, out_rx) = mpsc::channel::<D::Output>();
+        let connected = Arc::new(AtomicBool::new(false));
 
-                let _name = name.to_string();
-                let _thread = thread::spawn(move || {
-                    loop {
-                        if let Ok(data) = raw_rx.try_recv() {
-                            if let Some(input) = device.process_input(&data) {
-                                trace!("{_name} <- {input:?}");
-                                in_tx.send(input).unwrap();
-                            }
-                        }
+        let name = name.to_string();
+        let conn = connected.clone();
+        thread::spawn({
+            let name = name.clone();
+            move || supervise(name, device, in_tx, out_rx, conn)
+        });
 
-                        if let Ok(output) = out_rx.try_recv() {
-                            trace!("{_name} -> {output:?}");
-                            let data = device.process_output(output);
-                            if !data.is_empty() {
-                                raw_tx.send(data).unwrap();
-                            }
-                        }
-
-                        thread::sleep(Duration::from_millis(1));
-                    }
-                });
-
-                let in_rx = Mutex::new(in_rx);
-                let out_tx = Mutex::new(out_tx);
-
-                let mut this = Self::Connected { in_rx, out_tx, _raw, _thread };
-                D::init(&mut this);
-                this
-            }
-            Err(e) => {
-                warn!("Failed to open MIDI {name:?}: {e}");
-                Self::Disconnected
-            }
-        }
+        Self { name, in_rx: Mutex::new(in_rx), out_tx: Mutex::new(out_tx), connected }
     }
 
-    /// Call the given callback with any pending MIDI events.
+    /// The port name the supervisor is looking for.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn connected(&self) -> bool {
+        self.connected.load(Ordering::Relaxed)
+    }
+
+    /// All pending MIDI events.
     pub fn recv(&mut self) -> Vec<D::Input> {
-        match self {
-            Midi::Connected { in_rx, .. } => {
-                let mut msgs = vec![];
-                while let Ok(event) = in_rx.lock().unwrap().try_recv() {
-                    msgs.push(event);
-                }
-                msgs
-            }
-            Midi::Disconnected => vec![],
-        }
+        self.in_rx.lock().unwrap().try_iter().collect()
     }
 
-    /// Send a MIDI event.
+    /// Send a MIDI event. Dropped if disconnected.
     pub fn send(&mut self, output: D::Output) {
-        match self {
-            Midi::Connected { out_tx, .. } => out_tx.lock().unwrap().send(output).unwrap(),
-            Midi::Disconnected => {}
-        }
+        let _ = self.out_tx.lock().unwrap().send(output);
     }
 
     /// Log all available midi devices.
@@ -104,6 +76,64 @@ impl<D: MidiDevice> Midi<D> {
         }
 
         Ok(())
+    }
+}
+
+/// Own the device: connect when the port appears, pump i/o until it vanishes.
+fn supervise<D: MidiDevice>(
+    name: String,
+    mut device: D,
+    in_tx: mpsc::Sender<D::Input>,
+    out_rx: mpsc::Receiver<D::Output>,
+    connected: Arc<AtomicBool>,
+) {
+    loop {
+        let Ok((raw, raw_rx, raw_tx)) = MidiRaw::connect(&name) else {
+            // Drop stale outputs while unplugged
+            while out_rx.try_recv().is_ok() {}
+            thread::sleep(RESCAN);
+            continue;
+        };
+
+        info!("MIDI connected: {name}");
+        connected.store(true, Ordering::Relaxed);
+        for output in device.init() {
+            let data = device.process_output(output);
+            if !data.is_empty() {
+                let _ = raw_tx.send(data);
+            }
+        }
+
+        let mut scanned = Instant::now();
+        loop {
+            if let Ok(data) = raw_rx.try_recv() {
+                if let Some(input) = device.process_input(&data) {
+                    trace!("{name} <- {input:?}");
+                    let _ = in_tx.send(input);
+                }
+            }
+
+            if let Ok(output) = out_rx.try_recv() {
+                trace!("{name} -> {output:?}");
+                let data = device.process_output(output);
+                if !data.is_empty() && raw_tx.send(data).is_err() {
+                    break;
+                }
+            }
+
+            if scanned.elapsed() >= RESCAN {
+                scanned = Instant::now();
+                if !MidiRaw::present(&name) {
+                    break;
+                }
+            }
+
+            thread::sleep(Duration::from_millis(1));
+        }
+
+        warn!("MIDI disconnected: {name}");
+        connected.store(false, Ordering::Relaxed);
+        drop(raw);
     }
 }
 
@@ -139,23 +169,34 @@ impl MidiRaw {
                 "in",
                 move |_, data, _| {
                     // trace!("{_name} <- [{data:X?}]");
-                    in_tx.send(data.to_vec()).unwrap();
+                    let _ = in_tx.send(data.to_vec());
                 },
                 (),
             )
-            .unwrap();
+            .map_err(|e| anyhow!("failed to connect midi input '{name}': {e}"))?;
 
-        let mut out_conn = midi_out.connect(&out_port, "out").unwrap();
+        let mut out_conn = midi_out
+            .connect(&out_port, "out")
+            .map_err(|e| anyhow!("failed to connect midi output '{name}': {e}"))?;
 
         let _name = name.to_string();
         let _out_thread = thread::spawn(move || {
             loop {
-                let data = out_rx.recv().unwrap();
+                let Ok(data) = out_rx.recv() else { break };
                 // trace!("{_name} -> {data:X?}");
-                out_conn.send(&data).unwrap();
+                if out_conn.send(&data).is_err() {
+                    break;
+                }
             }
         });
 
         Ok((Self { _in_conn, _out_thread }, in_rx, out_tx))
+    }
+
+    /// Whether a port matching `name` is currently present.
+    pub fn present(name: &str) -> bool {
+        MidiInput::new("_scan").is_ok_and(|midi_in| {
+            midi_in.ports().iter().any(|p| midi_in.port_name(p).is_ok_and(|n| n.contains(name)))
+        })
     }
 }

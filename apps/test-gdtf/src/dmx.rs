@@ -7,7 +7,9 @@ use std::time::Duration;
 use lib::prelude::*;
 use lib::rdm::{RdmWidget, Uid, pid};
 
-use crate::Rig;
+use lib::gdtf::{GdtfFixture, GdtfLibrary};
+
+use crate::{Fixture, KIND};
 
 /// A responder found on the bus.
 #[derive(Clone)]
@@ -39,7 +41,10 @@ impl Responder {
 /// Fold a mode or personality name for comparison: fixtures and GDTFs disagree
 /// on spacing and case ("STDY" vs "STD Y").
 fn fold(s: &str) -> String {
-    s.chars().filter(char::is_ascii_alphanumeric).map(|c| c.to_ascii_uppercase()).collect()
+    s.chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_uppercase())
+        .collect()
 }
 
 enum Cmd {
@@ -76,7 +81,9 @@ impl Dmx {
             rx: None,
             pending: Arc::new(Mutex::new(None)),
             status: String::new(),
-            enabled: false,
+            // Output still waits on a discovered target, so this sends nothing
+            // until there is a fixture to send to.
+            enabled: true,
             discovering: false,
             responders: vec![],
             selected: None,
@@ -151,7 +158,8 @@ fn worker(mut widget: RdmWidget, rx: Receiver<Cmd>, tx: Sender<Ev>, pending: Arc
                 if uids.is_empty() {
                     log("no responders on the bus".into());
                 }
-                let responders: Vec<Responder> = uids.into_iter().map(|uid| enumerate(&mut widget, uid)).collect();
+                let responders: Vec<Responder> =
+                    uids.into_iter().map(|uid| enumerate(&mut widget, uid)).collect();
                 for r in &responders {
                     log(format!(
                         "{} {:?} mfr {:04X} model {:04X} @{} {}ch pers {}/{} invert {:?}",
@@ -189,7 +197,11 @@ fn worker(mut widget: RdmWidget, rx: Receiver<Cmd>, tx: Sender<Ev>, pending: Arc
 
 fn enumerate(widget: &mut RdmWidget, uid: Uid) -> Responder {
     let ascii = |pd: Vec<u8>| {
-        pd.iter().map(|&b| if b == 0 { ' ' } else { b as char }).collect::<String>().trim().to_string()
+        pd.iter()
+            .map(|&b| if b == 0 { ' ' } else { b as char })
+            .collect::<String>()
+            .trim()
+            .to_string()
     };
 
     let mut r = Responder {
@@ -221,7 +233,8 @@ fn enumerate(widget: &mut RdmWidget, uid: Uid) -> Responder {
         if let Some(pd) = widget.get(uid, pid::DMX_PERSONALITY_DESC, &[n])
             && pd.len() >= 3
         {
-            r.personalities.push((n, ascii(pd[3..].to_vec()), u16::from_be_bytes([pd[1], pd[2]])));
+            r.personalities
+                .push((n, ascii(pd[3..].to_vec()), u16::from_be_bytes([pd[1], pd[2]])));
         }
     }
 
@@ -232,11 +245,16 @@ fn enumerate(widget: &mut RdmWidget, uid: Uid) -> Responder {
     r
 }
 
-pub fn poll(mut dmx: ResMut<Dmx>, mut rig: ResMut<Rig>) {
+pub fn poll(
+    mut dmx: ResMut<Dmx>,
+    mut library: ResMut<GdtfLibrary>,
+    fixture: Option<Single<&mut GdtfFixture, With<Fixture>>>,
+) {
     let Some(rx) = &dmx.rx else {
         return;
     };
     let events: Vec<Ev> = rx.lock().unwrap().try_iter().collect();
+    let Some(mut fixture) = fixture else { return };
 
     for ev in events {
         match ev {
@@ -246,8 +264,10 @@ pub fn poll(mut dmx: ResMut<Dmx>, mut rig: ResMut<Rig>) {
             }
             Ev::Discovering(b) => dmx.discovering = b,
             Ev::Responders(responders) => {
+                let mut switch_to = None;
+                let Some(gdtf) = library.get(KIND).map(|ty| &ty.gdtf) else { continue };
                 // Prefer the responder this GDTF describes.
-                let matched = rig.gdtf.rdm.as_ref().and_then(|rdm| {
+                let matched = gdtf.rdm.as_ref().and_then(|rdm| {
                     responders
                         .iter()
                         .position(|r| r.uid.manufacturer() == rdm.manufacturer && r.model_id == rdm.model)
@@ -262,40 +282,53 @@ pub fn poll(mut dmx: ResMut<Dmx>, mut rig: ResMut<Rig>) {
                     // a channel count, so prefer a name match among those.
                     let footprint = target.active_footprint() as usize;
                     let name = target.active().map(|(_, name, _)| fold(name)).unwrap_or_default();
-                    let fits: Vec<usize> =
-                        (0..rig.gdtf.modes.len()).filter(|&i| rig.gdtf.modes[i].footprint() == footprint).collect();
+                    let fits: Vec<usize> = (0..gdtf.modes.len())
+                        .filter(|&i| gdtf.modes[i].footprint() == footprint)
+                        .collect();
                     let mode = fits
                         .iter()
-                        .find(|&&i| fold(&rig.gdtf.modes[i].name) == name)
+                        .find(|&&i| fold(&gdtf.modes[i].name) == name)
                         .or(fits.first())
                         .copied();
-                    if let Some(mode) = mode {
-                        rig.mode = mode;
-                        rig.home();
-                    }
                     for axle in 0..2 {
                         if let Some(invert) = target.invert[axle] {
-                            rig.invert[axle] = invert;
+                            fixture.invert[axle] = invert;
                         }
                     }
+                    switch_to = mode;
+                }
+
+                // Taking the library mutably has to wait for the read above.
+                if let Some(mode) = switch_to
+                    && let Some(ty) = library.get_mut(KIND)
+                    && ty.mode != mode
+                {
+                    ty.mode = mode;
+                    fixture.rebuild();
                 }
             }
         }
     }
 }
 
-pub fn output(mut dmx: ResMut<Dmx>, rig: Res<Rig>) {
+pub fn output(
+    mut dmx: ResMut<Dmx>,
+    library: Res<GdtfLibrary>,
+    fixture: Option<Single<&GdtfFixture, With<Fixture>>>,
+) {
     if !dmx.enabled {
         return;
     }
     let Some(target) = dmx.target().cloned() else {
         return;
     };
+    let (Some(fixture), Some(ty)) = (fixture, library.get(KIND)) else {
+        return;
+    };
 
-    let mode = &rig.gdtf.modes[rig.mode];
     let mut universe = vec![0u8; 512];
     let start = target.address.max(1) as usize - 1;
-    for (i, byte) in mode.encode(&rig.values).into_iter().enumerate() {
+    for (i, byte) in ty.mode().encode(&fixture.values).into_iter().enumerate() {
         if start + i < universe.len() {
             universe[start + i] = byte;
         }

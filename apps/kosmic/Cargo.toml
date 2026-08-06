@@ -1,15 +1,15 @@
 [package]
-name = "test-gdtf"
+name = "kosmic"
 version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "test-gdtf"
-path = "src/test_gdtf.rs"
+name = "kosmic"
+path = "src/kosmic.rs"
 
 [dependencies]
 lib.workspace = true
 bevy.workspace = true
-egui_plot.workspace = true
 argh.workspace = true
-anyhow.workspace = true
+rand.workspace = true
+itertools.workspace = true
