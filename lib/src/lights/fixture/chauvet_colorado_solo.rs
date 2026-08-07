@@ -13,6 +13,10 @@ pub struct ColoradoSolo {
     pub alpha: f32,
     /// Zoom, `0..1`.
     pub zoom: f32,
+    /// Raw channel 17, whose chart is not to be trusted: 0 is the fixture's own
+    /// dimmer curve, 29 is linear at the fastest response, and some values stop
+    /// output entirely.
+    pub dimmer_speed: u8,
 }
 
 impl DmxDevice for ColoradoSolo {
@@ -34,8 +38,8 @@ impl DmxDevice for ColoradoSolo {
 
         // 11 color macro, 12 strobe, 13/14 auto programs stay 0 = no function
         dmx[14] = self.zoom.byte(); // 15
-        // 16 zoom control and 17 dimmer speed stay 0: nonzero ch17 kills
-        // output on this firmware despite what the chart says
+        // 16 zoom control stays 0 = no function
+        dmx[16] = self.dimmer_speed; // 17
     }
 }
 
@@ -59,6 +63,6 @@ impl RdmDevice for ColoradoSolo {
 
 impl Default for ColoradoSolo {
     fn default() -> Self {
-        Self { color: Rgbw::BLACK, alpha: 1.0, zoom: 0.5 }
+        Self { color: Rgbw::BLACK, alpha: 1.0, zoom: 0.5, dimmer_speed: 29 }
     }
 }

@@ -1,0 +1,7 @@
+global 1
+outcast_ring 1
+outcast_beam 1
+hydro 1
+colorado 1
+room 12
+haze 0.0005

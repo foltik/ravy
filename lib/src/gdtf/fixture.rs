@@ -11,15 +11,15 @@ use std::path::Path;
 use bevy::asset::io::memory::Dir;
 use bevy::camera::primitives::{Aabb, MeshAabb};
 use bevy::gltf::{GltfMesh, GltfNode};
-use bevy::light::NotShadowCaster;
+use bevy::light::{NotShadowCaster, SpotLightTexture};
 use bevy::math::Affine3A;
-use bevy::math::primitives::{ConicalFrustum, Cylinder};
 use bevy::world_serialization::WorldInstanceReady;
 
-use super::beam::{BeamMaterial, NoGobo};
+use super::beam::{self, Volumetrics};
 use super::file::{self, Gdtf, Geometry, Kind};
 use super::motion;
 use super::photometry::{self, Led, Photometry, Profile};
+use super::outcast::{self, Ring, Strobe};
 use crate::prelude::*;
 
 /// GDTF is z-up with the beam along -z; bevy is y-up.
@@ -40,8 +40,17 @@ const LIGHT_RANGE: f32 = 4.0 * BEAM_RANGE;
 /// glow growing with the dimmer all the way down instead of pinning at the top.
 const LENS_KNEE: f32 = 2.0e3;
 
+/// How small the light entity is made. Bevy hands a spot light's gobo to the
+/// clustered decal system, which besides projecting it also paints it over the
+/// base colour of anything inside a unit cube about the light: the fixture's own
+/// body, and the floor under it. Shrinking the entity shrinks that cube to
+/// nothing. The projection is a ratio of local coordinates so it comes out the
+/// same at any scale, and range, shadows and culling all ignore scale outright.
+const COOKIE_BOX: f32 = 1e-3;
+
 const TAU_4: f32 = std::f32::consts::FRAC_PI_2;
 const PI: f32 = std::f32::consts::PI;
+const DEG: f32 = PI / 180.0;
 
 /// The DMX frame the rig is being driven with. Whatever writes this drives the
 /// hardware and the sim from the same channels.
@@ -81,7 +90,7 @@ impl GdtfType {
 #[derive(Resource)]
 pub struct GdtfLibrary {
     dir: Dir,
-    types: HashMap<String, GdtfType>,
+    pub(super) types: HashMap<String, GdtfType>,
 }
 
 impl GdtfLibrary {
@@ -175,6 +184,12 @@ pub struct GdtfFixture {
     pub invert: [bool; 2],
     /// How each mechanism travels, indexed by [`Axle`].
     pub motion: [motion::Params; 3],
+    /// Outcast ring macro state. Left alone for every other fixture.
+    ring: Ring,
+    /// Outcast shutter state, indexed by channel. Empty for every other fixture.
+    strobe: Vec<Strobe>,
+    /// How far each wheel has turned, in degrees, indexed by channel.
+    spin: Vec<f32>,
     /// Mode the parts under this fixture were built for.
     built: Option<usize>,
 }
@@ -186,10 +201,33 @@ pub trait GdtfDevice: DmxDevice {
     /// DMX mode in the `.gdtf`, which is the personality the fixture is set to.
     const MODE: &'static str;
 
+    /// Where the fixture rests with nothing to do, indexed by [`Axle`]: pan and
+    /// tilt in degrees off the middle of their travel, zoom as a fraction of
+    /// its own. 0 is mechanically centred, which is home unless the fixture is
+    /// mounted somewhere that makes another rest angle the useful one.
+    const HOME: [f32; 3] = [0.0; 3];
+
+    /// Total pan and tilt travel in degrees, signed by which way the axle turns
+    /// as the DMX value rises. Anything aiming a head in angles needs this: the
+    /// travel is not always the round number, and not every fixture pans the
+    /// same way. It is what the `.gdtf` declares for the channel, which
+    /// [`declared_travel`] checks against.
+    const TRAVEL: [f32; 2] = [540.0, 270.0];
+
     /// Pan, tilt and zoom travel.
     fn motion() -> [motion::Params; 3] {
         [motion::Params::pan(), motion::Params::tilt(), motion::Params::zoom()]
     }
+}
+
+/// The pan and tilt travel a parsed type declares, in the same signed degrees
+/// as [`GdtfDevice::TRAVEL`], for whichever of the two it has a channel for.
+pub fn declared_travel(ty: &GdtfType) -> [Option<f32>; 2] {
+    ["Pan", "Tilt"].map(|attribute| {
+        let channel = ty.mode().channels.iter().find(|c| c.attribute == attribute)?;
+        let (from, to) = channel.functions.first()?.physical;
+        Some(to - from)
+    })
 }
 
 impl GdtfFixture {
@@ -205,6 +243,9 @@ impl GdtfFixture {
             home: [0.0, 0.0],
             invert: [false, false],
             motion: [motion::Params::pan(), motion::Params::tilt(), motion::Params::zoom()],
+            ring: Ring::default(),
+            strobe: vec![],
+            spin: vec![],
             built: None,
         }
     }
@@ -234,13 +275,77 @@ impl GdtfFixture {
         }
     }
 
-    fn slot<'a>(&self, ty: &'a GdtfType, channel: usize) -> Option<&'a file::Slot> {
-        let (wheel, slot) = ty.mode().channels[channel].slot(self.values[channel])?;
-        ty.gdtf.wheels.get(wheel)?.get(slot)
+    /// The wheel a channel is picking from, the two slots the gate is showing,
+    /// and where the edge between them lies across the aperture in radii: +1
+    /// for all of the first, -1 for all of the second.
+    ///
+    /// Read off where the wheel has really turned to rather than the wire, so a
+    /// move sweeps the slots between here and there past the gate the way the
+    /// fixture does, and a half step parks it square on the edge between two.
+    fn showing<'a>(&self, ty: &'a GdtfType, channel: usize) -> Option<(&'a str, [usize; 2], f32)> {
+        let chart = &ty.mode().channels[channel];
+        let wheel = chart.function(self.values[channel]).wheel.as_deref()?;
+        let count = ty.gdtf.wheels.get(wheel)?.len();
+        if count == 0 {
+            return None;
+        }
+
+        let pitch = 360.0 / count as f32;
+        let angle = self.spin.get(channel).copied().unwrap_or(0.0);
+        let place = (angle / pitch).rem_euclid(count as f32);
+
+        // Round to the slot squarest in the gate rather than truncating toward
+        // the one behind it: a wheel parked on a slot lands a hair either side
+        // of a whole number of pitches, which a floor reads as the wrong slot.
+        let nearest = place.round();
+        let past = (place - nearest) * pitch;
+        let slot = nearest as usize % count;
+        let next = match past < 0.0 {
+            true => (slot + count - 1) % count,
+            false => (slot + 1) % count,
+        };
+        // The gate only has two slots in it near the edge between them, and that
+        // edge is half a pitch from the middle of either.
+        let edge = (2.0 * (pitch * 0.5 - past.abs()) / HANDOVER).clamp(0.0, 1.0);
+        Some((wheel, [slot, next], edge))
     }
 
-    fn slot_index(&self, ty: &GdtfType, channel: usize) -> Option<usize> {
-        Some(ty.mode().channels[channel].slot(self.values[channel])?.1)
+    /// The filters a colour wheel is showing, one per side of the split: the
+    /// hue each passes at a luminance of 1, and how much of the source it lets
+    /// through.
+    fn filters(&self, ty: &GdtfType, channel: usize) -> Option<([(Vec3, f32); 2], f32)> {
+        let (wheel, slots, edge) = self.showing(ty, channel)?;
+        let slots = spread(slots, edge);
+        let wheel = ty.gdtf.wheels.get(wheel)?;
+        let pick = |i: usize| wheel.get(i).and_then(|s| s.color).map_or((Vec3::ONE, 1.0), filter);
+        Some(([pick(slots[0]), pick(slots[1])], edge))
+    }
+}
+
+/// Degrees of wheel travel over which the gate shows two slots at once, centred
+/// on the edge between them. Slots are wider than the aperture, so a turning
+/// wheel shows a single one for most of its pitch and both only across this.
+const HANDOVER: f32 = 25.0;
+
+/// How fast a wheel gets from one slot to the next, in degrees per second. The
+/// GDTF times nothing but the spin ranges, and a real wheel is quick between
+/// two positions rather than instant: at 400 an adjacent slot takes 100ms and a
+/// whole turn most of a second.
+pub const WHEEL_SPEED: f32 = 400.0;
+
+/// Which way the gate is cut, as an angle in degrees about the beam axis: the
+/// direction a wheel's slots travel across the aperture, and so the angle a
+/// split beam is divided at. Not something the GDTF carries; measured off the
+/// hydros by eye.
+const SPLIT: f32 = 105.0;
+
+/// Both slots when the gate is really straddling them, and the near one twice
+/// over when it is not. Only the mechanism that is mid-move differs across the
+/// split; everything else in the path applies to the whole beam.
+fn spread<T: Copy>(pair: [T; 2], edge: f32) -> [T; 2] {
+    match edge < 1.0 {
+        true => pair,
+        false => [pair[0]; 2],
     }
 }
 
@@ -287,8 +392,6 @@ pub struct Emitter {
     gobo: Option<usize>,
     /// Gobo indexing channel, which rotates the pattern.
     gobo_pos: Option<usize>,
-    /// Accumulated rotation in degrees, for the continuous-spin function.
-    spin: f32,
     /// Gobo slot currently applied, to avoid restamping it every frame.
     gobo_slot: Option<usize>,
     /// Luminous flux in lumens the GDTF claims, used where nothing measured
@@ -300,6 +403,8 @@ pub struct Emitter {
     hotspot: f32,
     /// A surface that lights up but casts no beam.
     pub glow: bool,
+    /// Segment of the Outcast's ring this cell is. None for anything else.
+    segment: Option<usize>,
     /// Fraction of the fixture's measured output this cell makes. The lab lit
     /// every cell of an array at once, so one of seven throws a seventh.
     share: f32,
@@ -307,22 +412,42 @@ pub struct Emitter {
     area: f32,
     /// Current beam profile, shared with the volume shader.
     cone: Profile,
-    /// What the emitter is putting out right now, in candela.
+    /// What the emitter is putting out right now, in candela, across the whole
+    /// aperture. The two sides of a split mixed by how much each covers.
     pub peak: f32,
     /// Beam and field angle it is putting it out over, in degrees.
     pub angles: Vec2,
-    /// Full outer angle the cone mesh was last built for, in degrees.
-    built: f32,
+    /// Linear sRGB it is putting out, at a luminance of one, mixed the same way.
+    tint: Vec3,
+    /// What each side of the split is showing.
+    sides: [Side; 2],
+    /// Where the edge between them lies across the aperture, in radii. +1 when
+    /// nothing is mid-move, which is the whole beam on the first side.
+    split: f32,
+    /// Where the gobo has been turned to, in radians.
+    gobo_spin: f32,
+    /// How far through its cycle a shake is, in turns. Carried rather than
+    /// taken from the clock, so changing the rate doesn't jump the gobo.
+    shake: f32,
+    /// The emitter's own rest rotation, which a shake swings the beam off.
+    rest: Quat,
     light: Option<Entity>,
     lens: Handle<StandardMaterial>,
-    beam: Option<(Handle<Mesh>, Handle<BeamMaterial>, f32)>,
-    /// The cone volume, hidden while the emitter is dark.
-    volume: Option<Entity>,
+    /// Radius of the emitting face, which is where the cone starts. None for a
+    /// glow surface, which projects nothing.
+    aperture: Option<f32>,
 }
 
-/// Excluded from bounds: the cone is metres long and would swamp a fit.
-#[derive(Component)]
-pub struct BeamCone;
+/// One side of what the gate is showing.
+#[derive(Clone, Copy, Default)]
+struct Side {
+    /// Linear sRGB through this slot, at a luminance of one.
+    tint: Vec3,
+    /// Peak luminous intensity through it, in candela.
+    peak: f32,
+    /// Layer of the packed gobo array, 0 for an open gate.
+    layer: f32,
+}
 
 /// Material override applied to a part's meshes once its scene spawns.
 #[derive(Component)]
@@ -343,30 +468,83 @@ pub(super) fn setup(mut cmds: Commands, mut mats: ResMut<Assets<StandardMaterial
     cmds.insert_resource(BodyMaterial(body));
 }
 
-/// Copy each patched fixture's slice of the universe into its channel values.
+/// Copy each patched fixture's slice of the universe into its channel values,
+/// then run whatever the values alone drive. An unaddressed fixture is written
+/// to directly, so it is only skipped by the copy.
 pub(super) fn drive(
     universe: Option<Res<Universe>>,
+    time: Res<Time>,
     library: Res<GdtfLibrary>,
     mut fixtures: Query<&mut GdtfFixture>,
 ) {
-    let Some(universe) = universe else { return };
     for mut fixture in &mut fixtures {
-        if fixture.address == 0 || !fixture.is_built() {
+        if !fixture.is_built() {
             continue;
         }
         let Some(ty) = library.get(&fixture.kind) else { continue };
-        let base = fixture.address - 1;
-        let values: Vec<u32> = ty
-            .mode()
-            .channels
-            .iter()
-            .map(|channel| {
-                channel.offsets.iter().fold(0u32, |acc, &slot| {
-                    (acc << 8) | universe.0.get(base + slot - 1).copied().unwrap_or(0) as u32
+        let mode = ty.mode();
+        if let (Some(universe), true) = (&universe, fixture.address != 0) {
+            let base = fixture.address - 1;
+            let values: Vec<u32> = mode
+                .channels
+                .iter()
+                .map(|channel| {
+                    channel.offsets.iter().fold(0u32, |acc, &slot| {
+                        (acc << 8) | universe.0.get(base + slot - 1).copied().unwrap_or(0) as u32
+                    })
                 })
-            })
-            .collect();
-        fixture.values = values;
+                .collect();
+            fixture.values = values;
+        }
+
+        // Where every wheel has actually turned to. A slot chart names a target
+        // the wheel takes time to reach, and a spin range names a rate: either
+        // way the position is ours to carry, and what the gate shows follows
+        // from it rather than straight from the wire.
+        let dt = time.delta_secs();
+        fixture.spin.resize(mode.channels.len(), 0.0);
+        for (i, chart) in mode.channels.iter().enumerate() {
+            let value = fixture.values.get(i).copied().unwrap_or(0);
+            let function = chart.function(value);
+            let Some(wheel) = function.wheel.as_deref() else { continue };
+            let count = ty.gdtf.wheels.get(wheel).map_or(0, Vec::len);
+            if count == 0 {
+                continue;
+            }
+
+            let angle = fixture.spin[i];
+            let next = if function.attribute.ends_with("WheelSpin")
+                || function.attribute.ends_with("PosRotate")
+            {
+                angle + chart.rate(value) * dt
+            } else if let Some((_, slot, offset)) = chart.slot(value) {
+                // Whichever way round is shorter, at the speed the wheel moves.
+                let pitch = 360.0 / count as f32;
+                let short = ((slot as f32 + offset) * pitch - angle + 180.0).rem_euclid(360.0);
+                angle + (short - 180.0).clamp(-WHEEL_SPEED * dt, WHEEL_SPEED * dt)
+            } else {
+                angle
+            };
+            fixture.spin[i] = next;
+        }
+
+        // The one fixture whose firmware we replay: its ring macros animate the
+        // 12 segments, and its shutter really blinks.
+        if !outcast::matches(&ty.gdtf) {
+            continue;
+        }
+        let find = |attribute: &str| mode.channels.iter().position(|c| c.attribute == attribute);
+        let value = |channel: Option<usize>| {
+            channel.and_then(|c| fixture.values.get(c).copied()).unwrap_or(0)
+        };
+        let (pattern, speed) = (value(find("Effects2")), value(find("Effects2Rate")));
+        fixture.ring.step(pattern, speed, dt);
+
+        fixture.strobe.resize_with(mode.channels.len(), Strobe::default);
+        for (i, _) in mode.channels.iter().enumerate().filter(|(_, c)| c.attribute == "Shutter1") {
+            let value = fixture.values.get(i).copied().unwrap_or(0);
+            fixture.strobe[i].step(value, dt);
+        }
     }
 }
 
@@ -380,8 +558,6 @@ pub(super) fn build(
     nodes: Res<Assets<GltfNode>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut mats: ResMut<Assets<StandardMaterial>>,
-    mut beams: ResMut<Assets<BeamMaterial>>,
-    blank: Res<NoGobo>,
     body: Res<BodyMaterial>,
 ) {
     for (entity, mut fixture, global, standing) in &mut fixtures {
@@ -413,8 +589,6 @@ pub(super) fn build(
             nodes: &nodes,
             meshes: &mut meshes,
             mats: &mut mats,
-            beams: &mut beams,
-            blank: blank.0.clone(),
             body: body.0.clone(),
             share: 1.0 / cells.max(1) as f32,
             casts_shadows: true,
@@ -507,8 +681,6 @@ struct Builder<'a, 'w, 's> {
     nodes: &'a Assets<GltfNode>,
     meshes: &'a mut Assets<Mesh>,
     mats: &'a mut Assets<StandardMaterial>,
-    beams: &'a mut Assets<BeamMaterial>,
-    blank: Handle<Image>,
     /// Every part that is not a lens, since GDTF part meshes carry whatever
     /// material their exporter felt like.
     body: Handle<StandardMaterial>,
@@ -593,7 +765,7 @@ impl Builder<'_, '_, '_> {
                     emissive: LinearRgba::BLACK,
                     ..default()
                 });
-                self.emitter(entity, beam, model, chain, lens.clone());
+                self.emitter(entity, beam, model, chain, lens.clone(), local.rotation);
                 Some(lens)
             }
             _ => None,
@@ -611,9 +783,18 @@ impl Builder<'_, '_, '_> {
             self.cmds.entity(part).observe(recolor);
             self.cmds.entity(entity).add_child(part);
         } else if let (Some(lens), Some(model)) = (&lens, model) {
-            // Meshless beams still have a size: stand in with a disc.
-            let disc = self.meshes.add(Cylinder::new(model.size.x / 2.0, model.size.z.max(0.001)));
-            let part = self.cmds.spawn((Mesh3d(disc), MeshMaterial3d(lens.clone()))).id();
+            // Meshless beams still have a size: stand in with a disc. Flat, and
+            // facing down the beam: given the thickness the model claims, its
+            // rim and back face end up buried in the head that houses it and
+            // fight with it. It also sits across the aperture the beam starts
+            // at, so like the rest of the fixture it must not block that beam's
+            // own light.
+            let disc = self.meshes.add(Circle::new(model.size.x / 2.0));
+            let facing = Transform::from_rotation(Quat::from_rotation_x(TAU_4));
+            let part = self
+                .cmds
+                .spawn((Mesh3d(disc), MeshMaterial3d(lens.clone()), facing, NotShadowCaster))
+                .id();
             self.cmds.entity(entity).add_child(part);
         }
 
@@ -633,6 +814,7 @@ impl Builder<'_, '_, '_> {
         model: Option<&str>,
         chain: &[String],
         lens: Handle<StandardMaterial>,
+        rest: Quat,
     ) {
         let mode = self.ty.mode();
         let gdtf = &self.ty.gdtf;
@@ -644,7 +826,7 @@ impl Builder<'_, '_, '_> {
             false => beam.angle,
         };
 
-        let (mut light, mut cone, mut beam_handles) = (None, None, None);
+        let (mut light, mut aperture) = (None, None);
         if !beam.glow {
             light = Some(
                 self.cmds
@@ -656,42 +838,34 @@ impl Builder<'_, '_, '_> {
                             outer_angle: field.to_radians() / 2.0,
                             range: LIGHT_RANGE,
                             radius: 0.0,
-                            // One shadow map per fixture, not per cell. Every
-                            // one is a whole extra pass over the scene, and the
-                            // cells of an array sit within centimetres of each
-                            // other, so they all throw the same shadow.
+                            // Shadows what the fixture lands on. The beam volume
+                            // is occluded by ray query instead, but bevy's own
+                            // shading of surfaces still reads a map.
+                            //
+                            // One per fixture, not per cell: each is a whole
+                            // extra pass over the scene, and the cells of an
+                            // array sit within centimetres of each other, so
+                            // they all throw the same shadow.
                             shadow_maps_enabled: std::mem::take(&mut self.casts_shadows),
                             shadow_depth_bias: 0.02,
                             shadow_normal_bias: 1.8,
                             ..default()
                         },
                         // Bevy spots point along -z, GDTF beams along -y once converted.
-                        Transform::from_rotation(Quat::from_rotation_x(-TAU_4)),
+                        Transform::from_rotation(Quat::from_rotation_x(-TAU_4))
+                            .with_scale(Vec3::splat(COOKIE_BOX)),
                     ))
                     .id(),
             );
 
             // Prefer the lens size over BeamRadius, which is the far-field radius.
-            let near = model
-                .and_then(|m| gdtf.models.get(m))
-                .map(|m| m.size.x / 2.0)
-                .filter(|r| *r > 0.0)
-                .unwrap_or(beam.radius);
-            let mesh = self.meshes.add(cone_mesh(near, field));
-            let material = self.beams.add(BeamMaterial { gobo: self.blank.clone(), ..default() });
-            cone = Some(
-                self.cmds
-                    .spawn((
-                        BeamCone,
-                        // Otherwise the work light throws a beam-shaped shadow.
-                        NotShadowCaster,
-                        Mesh3d(mesh.clone()),
-                        MeshMaterial3d(material.clone()),
-                        Transform::from_xyz(0.0, -BEAM_RANGE / 2.0, 0.0),
-                    ))
-                    .id(),
+            aperture = Some(
+                model
+                    .and_then(|m| gdtf.models.get(m))
+                    .map(|m| m.size.x / 2.0)
+                    .filter(|r| *r > 0.0)
+                    .unwrap_or(beam.radius),
             );
-            beam_handles = Some((mesh, material, near));
         }
 
         let mixing = ["ColorAdd_R", "ColorAdd_G", "ColorAdd_B", "ColorAdd_W"];
@@ -708,7 +882,6 @@ impl Builder<'_, '_, '_> {
             wheels: ["Color1", "Color2"].iter().filter_map(|a| resolve(a)).collect(),
             gobo: resolve("Gobo1"),
             gobo_pos: resolve("Gobo1Pos"),
-            spin: 0.0,
             gobo_slot: None,
             flux: beam.flux,
             angle: field,
@@ -717,6 +890,7 @@ impl Builder<'_, '_, '_> {
                 false => 0.7,
             },
             glow: beam.glow,
+            segment: outcast::segment(gdtf, chain),
             share: match beam.glow {
                 true => 1.0,
                 false => self.share,
@@ -725,14 +899,18 @@ impl Builder<'_, '_, '_> {
             cone: Profile::new(beam.angle, field),
             peak: 0.0,
             angles: Vec2::ZERO,
-            built: 0.0,
+            tint: Vec3::ZERO,
+            sides: [Side::default(); 2],
+            split: 1.0,
+            gobo_spin: 0.0,
+            shake: 0.0,
+            rest,
             light,
             lens,
-            beam: beam_handles,
-            volume: cone,
+            aperture,
         });
 
-        for child in light.iter().chain(cone.iter()) {
+        for child in light.iter() {
             self.cmds.entity(entity).add_child(*child);
         }
     }
@@ -760,28 +938,39 @@ fn recolor(
     }
 }
 
-/// A wheel slot's filter: the hue it passes, at a luminance of 1, and how much
-/// of the source it lets through (its CIE Y, as a fraction).
+/// What a filter passes outside the band it is named for. A slot's GDTF colour
+/// is the chromaticity of white light through it, not the curve that made it,
+/// and converting one straight to rgb pins whole channels at zero. Two filters
+/// in series then multiply out to whatever the gamut clip happened to leave.
+/// Real dichroics have skirts that overlap, and this is the floor standing in
+/// for them.
+const LEAKAGE: f32 = 0.12;
+
+/// A wheel slot's transmission per channel, peak-normalised so that only its
+/// hue is carried here, and how much of the source it lets through overall
+/// (its CIE Y, as a fraction).
 fn filter(cie: Vec3) -> (Vec3, f32) {
     let Vec3 { x, y, z: transmission } = cie;
     if y <= 0.0 {
         return (Vec3::ONE, 1.0);
     }
-    (photometry::xy_to_rgb(x, y), (transmission / 100.0).clamp(0.0, 1.0))
+    let hue = photometry::xy_to_rgb(x, y);
+    let band = hue / hue.max_element().max(1e-6);
+    (band.max(Vec3::splat(LEAKAGE)), (transmission / 100.0).clamp(0.0, 1.0))
 }
 
 pub(super) fn apply(
+    mut cmds: Commands,
     library: Res<GdtfLibrary>,
     time: Res<Time>,
     fixtures: Query<&GdtfFixture>,
-    mut motors: Query<(&mut Motor, &mut Transform)>,
-    mut emitters: Query<&mut Emitter>,
-    mut lights: Query<&mut SpotLight>,
+    // A geometry is an axle or a beam, never both, but only the filter says so.
+    mut motors: Query<(&mut Motor, &mut Transform), Without<Emitter>>,
+    mut emitters: Query<(&mut Emitter, &mut Transform)>,
+    mut lights: Query<(&mut SpotLight, &mut Transform), (Without<Motor>, Without<Emitter>)>,
     mut visible: Query<&mut Visibility>,
     mut mats: ResMut<Assets<StandardMaterial>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut beams: ResMut<Assets<BeamMaterial>>,
-    blank: Res<NoGobo>,
+    gobos: Res<Volumetrics>,
 ) {
     let resolve = |entity| {
         let fixture: &GdtfFixture = fixtures.get(entity).ok()?;
@@ -822,7 +1011,7 @@ pub(super) fn apply(
         .map(|(motor, _)| (motor.fixture, motor.travel.pos / 100.0))
         .collect();
 
-    for mut emitter in &mut emitters {
+    for (mut emitter, mut transform) in &mut emitters {
         let Some((fixture, ty)) = resolve(emitter.fixture) else { continue };
         let mode = ty.mode();
 
@@ -840,7 +1029,7 @@ pub(super) fn apply(
             rgb = emitter.source * weight;
         }
         // Back to a luminance of 1, with the output it stands for kept apart.
-        let mut level = ty.photometry.output(weight);
+        let level = ty.photometry.output(weight);
         rgb = match weight > 1e-6 {
             true => rgb / weight,
             false => Vec3::ONE,
@@ -849,22 +1038,41 @@ pub(super) fn apply(
         // Colour wheels tint and dim. The slot's chromaticity is the hue it
         // passes; its CIE Y is the whole of what passing it costs, so shape the
         // hue with a peak-normalised transmission and leave luminance to Y.
+        //
+        // A wheel caught between two slots throws both at once, so from here the
+        // beam is two of everything. Two wheels mid-move would really cut the
+        // aperture up twice over; the one that has turned furthest takes it.
+        let mut tint = [rgb; 2];
+        let mut pass = [level; 2];
+        let mut split = 1.0_f32;
         for &channel in &emitter.wheels {
-            let Some(slot) = fixture.slot(ty, channel) else { continue };
-            let Some(cie) = slot.color else { continue };
-            let (tint, pass) = filter(cie);
-            let shaped = rgb * tint / tint.max_element().max(1e-6);
-            rgb = shaped / photometry::luminance(shaped).max(1e-6);
-            level *= pass;
+            let Some((filters, edge)) = fixture.filters(ty, channel) else { continue };
+            for (side, (band, through)) in filters.iter().enumerate() {
+                let shaped = tint[side] * *band;
+                tint[side] = shaped / photometry::luminance(shaped).max(1e-6);
+                pass[side] *= through;
+            }
+            split = split.min(edge);
         }
 
+        // The Outcast's own shutter timing, which really blinks. Every other
+        // fixture falls back to the GDTF's function, whose strobe ranges all
+        // read as nominally open.
         let open = emitter.shutter.is_none_or(|c| {
-            let channel = &mode.channels[c];
-            let function = channel.function(fixture.values[c]);
-            // Strobe functions all keep the shutter nominally open; we don't blink.
-            !function.attribute.ends_with("Shutter1") || channel.physical(fixture.values[c]) >= 0.5
+            fixture.strobe.get(c).and_then(Strobe::open).unwrap_or_else(|| {
+                let channel = &mode.channels[c];
+                let function = channel.function(fixture.values[c]);
+                !function.attribute.ends_with("Shutter1")
+                    || channel.physical(fixture.values[c]) >= 0.5
+            })
         });
-        level *= fixture.level(ty, emitter.dimmer, 1.0) * if open { 1.0 } else { 0.0 };
+        let mut whole = fixture.level(ty, emitter.dimmer, 1.0) * if open { 1.0 } else { 0.0 };
+
+        // The Outcast's ring macro blacks out the segments its frame leaves unlit.
+        if emitter.segment.and_then(|s| fixture.ring.lit(s)) == Some(false) {
+            whole = 0.0;
+        }
+        pass = pass.map(|p| p * whole);
 
         // Zoom position rather than the degrees the GDTF claims for it: the
         // measured sweep is sampled across the travel, and the declared
@@ -893,40 +1101,75 @@ pub(super) fn apply(
 
         // Peak luminous intensity, which is what the fixture is specified by and
         // what both the light and the volume need.
-        let peak = match glow {
+        let source = match glow {
             Some(flux) => flux / emitter.cone.solid_angle(),
             None => full * emitter.share,
-        } * level;
+        };
+        emitter.split = split;
+        emitter.sides = [0, 1].map(|side| Side {
+            tint: tint[side],
+            peak: source * pass[side],
+            layer: 0.0,
+        });
+
+        // Neither the spot light nor the lens face can be split, so they take the
+        // two sides mixed by how much of the aperture each covers.
+        let far = ((1.0 - split) * 0.5).clamp(0.0, 1.0);
+        let level = pass[0] * (1.0 - far) + pass[1] * far;
+        let peak = emitter.sides[0].peak * (1.0 - far) + emitter.sides[1].peak * far;
+        let mixed = emitter.sides[0].tint * (1.0 - far) + emitter.sides[1].tint * far;
+        let rgb = mixed / photometry::luminance(mixed).max(1e-6);
         emitter.peak = peak;
         emitter.angles = Vec2::new(hot, field);
+        emitter.tint = rgb;
 
-        // A dark emitter still costs a shadow map and a screenful of raymarch,
-        // so take it out of the frame entirely rather than scaling it to zero.
+        // A dark emitter still costs a shadow map, so take it out of the frame
+        // entirely rather than scaling it to zero. Its cone drops out of the beam
+        // pass on its own, since that only carries what is lit.
         let lit = match peak > 0.0 {
             true => Visibility::Inherited,
             false => Visibility::Hidden,
         };
-        for entity in emitter.light.iter().chain(emitter.volume.iter()) {
+        for entity in emitter.light.iter() {
             if let Ok(mut visibility) = visible.get_mut(*entity) {
                 visibility.set_if_neq(lit);
             }
         }
 
         // Gobo: shows in the beam volume only. A light cookie would also throw the
-        // pattern onto whatever the beam lands on, which is not wanted here.
-        let gobo = emitter.gobo.and_then(|c| fixture.slot(ty, c)).and_then(|s| s.media.as_ref());
-        let gobo_slot = emitter.gobo.and_then(|c| fixture.slot_index(ty, c));
+        // pattern onto whatever the beam lands on, which is not wanted here. A
+        // turning wheel hands one over to the next the same way a colour wheel
+        // does, so the two sides can be showing different patterns.
+        let showing = emitter.gobo.and_then(|c| fixture.showing(ty, c));
+        let mut near = None;
+        if let Some((wheel, slots, edge)) = showing {
+            let media = |slot: usize| {
+                let name = ty.gdtf.wheels.get(wheel)?.get(slot)?.media.as_ref()?;
+                ty.images.get(name).cloned()
+            };
+            let images = spread(slots, edge).map(media);
+            for (side, image) in images.iter().enumerate() {
+                emitter.sides[side].layer = gobos.layer(image.as_ref());
+            }
+            emitter.split = emitter.split.min(edge);
+            near = Some((slots[0], images[0].clone()));
+        }
+
+        // The lens face carries whichever pattern is squarest in the gate.
+        let gobo_slot = near.as_ref().map(|(slot, _)| *slot);
         if emitter.gobo_slot != gobo_slot {
             emitter.gobo_slot = gobo_slot;
-            let texture = gobo.and_then(|name| ty.images.get(name)).cloned();
-
+            let image = near.and_then(|(_, image)| image);
             // Tints the lens face, without the alpha that an albedo map carries.
-            mats.get_mut(&emitter.lens).unwrap().emissive_texture = texture.clone();
-
-            if let Some((_, material, _)) = &emitter.beam {
-                let mut material = beams.get_mut(material).unwrap();
-                material.beam.gobo_spin.z = texture.is_some() as u32 as f32;
-                material.gobo = texture.unwrap_or_else(|| blank.0.clone());
+            mats.get_mut(&emitter.lens).unwrap().emissive_texture = image.clone();
+            // And throws the pattern onto whatever the beam lands on. Bevy
+            // projects it through the cone off the same tangent the volume
+            // uses, reading the red channel, which is the mask a gobo is.
+            if let Some(light) = emitter.light {
+                match image {
+                    Some(image) => cmds.entity(light).insert(SpotLightTexture { image }),
+                    None => cmds.entity(light).remove::<SpotLightTexture>(),
+                };
             }
         }
 
@@ -942,8 +1185,8 @@ pub(super) fn apply(
             lens.emissive = LinearRgba::rgb(rgb.x * face, rgb.y * face, rgb.z * face);
         }
 
-        if let Some(light) = emitter.light {
-            let mut light = lights.get_mut(light).unwrap();
+        if let Some(entity) = emitter.light {
+            let (mut light, _) = lights.get_mut(entity).unwrap();
             light.color = Color::linear_rgb(rgb.x, rgb.y, rgb.z);
             // Bevy spreads a spot light's lumens over the whole sphere and then
             // masks the cone, so scale back up by that sphere to hand it the
@@ -953,37 +1196,84 @@ pub(super) fn apply(
             light.inner_angle = emitter.cone.inner().min(light.outer_angle);
         }
 
-        if let Some((mesh, material, near)) = emitter.beam.clone() {
-            // The indexing channel carries two functions: an absolute angle, and
-            // above half a continuous rate in degrees per second.
-            let spin = match emitter.gobo_pos {
-                Some(c) => {
-                    let channel = &mode.channels[c];
-                    let physical = channel.physical(fixture.values[c]);
-                    if channel.function(fixture.values[c]).attribute.ends_with("Gobo1PosRotate") {
-                        emitter.spin += physical * time.delta_secs();
-                        emitter.spin
-                    } else {
-                        physical
-                    }
-                }
-                None => 0.0,
-            }
-            .to_radians();
-            let mut material = beams.get_mut(&material).unwrap();
-            material.beam.color = rgb.extend(peak);
-            (material.beam.gobo_spin.x, material.beam.gobo_spin.y) = (spin.cos(), spin.sin());
-            drop(material);
+        // A shaking wheel rattles its slot across the gate rather than turning
+        // it, which swings the beam a little way off where it is pointing. The
+        // head itself does not move, so this is the emitter's own rotation and
+        // not the axles'.
+        let rate = emitter.gobo.map_or(0.0, |c| shake(&mode.channels[c], fixture.values[c]));
+        emitter.shake = (emitter.shake + rate * time.delta_secs()).fract();
+        let swing = match rate > 0.0 {
+            true => SHAKE_SWING * wave(emitter.shake, rate) * DEG,
+            false => Vec2::ZERO,
+        };
+        let rotation =
+            emitter.rest * Quat::from_rotation_x(swing.x) * Quat::from_rotation_z(swing.y);
+        if transform.rotation != rotation {
+            transform.rotation = rotation;
+        }
 
-            // The mesh has to reach the outer angle, past where the cone has
-            // faded out, or the profile gets clipped by its own geometry.
-            let outer = emitter.cone.outer().to_degrees() * 2.0;
-            if (outer - emitter.built).abs() > 0.01 {
-                *meshes.get_mut(&mesh).unwrap() = cone_mesh(near, outer);
-                emitter.built = outer;
+        // The indexing channel carries two functions: an absolute angle, and
+        // above half a continuous rate, which `drive` has already integrated.
+        emitter.gobo_spin = match emitter.gobo_pos {
+            Some(c) => {
+                let channel = &mode.channels[c];
+                match channel.function(fixture.values[c]).attribute.ends_with("PosRotate") {
+                    true => fixture.spin.get(c).copied().unwrap_or(0.0),
+                    false => channel.physical(fixture.values[c]),
+                }
             }
+            None => 0.0,
+        }
+        .to_radians();
+
+        // Bevy samples a cookie in the light's own frame, so the gobo is turned
+        // by turning the light. Its cone is round, so nothing else notices.
+        if let Some(entity) = emitter.light {
+            let (_, mut aim) = lights.get_mut(entity).unwrap();
+            aim.rotation =
+                Quat::from_rotation_x(-TAU_4) * Quat::from_rotation_z(emitter.gobo_spin);
         }
     }
+}
+
+/// How far a wheel shake swings the beam, in degrees: across the tilt axle,
+/// then across the pan axle. The throw runs on a slant, mostly up and down.
+/// The gate shakes the gobo, not the yoke, so the beam only twitches.
+const SHAKE_SWING: Vec2 = Vec2::new(1.2, -0.7);
+
+/// How fast a shake runs at either end of its chart range, in hertz.
+const SHAKE_RATE: [f32; 2] = [0.85, 4.8];
+
+/// How long a shake rests at the end of a throw, in seconds, and the most of
+/// the throw that rest may take. It is a fixed wait rather than a share of the
+/// cycle, so a slow shake spends nearly all of its time crossing and only a
+/// fast one reads as a flick and a pause.
+const SHAKE_DWELL: [f32; 2] = [0.06, 0.6];
+
+/// Where a shake has swung to, -1..1, `phase` cycles into one running at
+/// `rate` hertz. The gate drives the gobo across at a steady rate, holds it
+/// against the stop, then drives it back.
+fn wave(phase: f32, rate: f32) -> f32 {
+    let [hold, most] = SHAKE_DWELL;
+    let dwell = (hold * rate * 2.0).min(most);
+    let phase = phase.rem_euclid(1.0) * 2.0;
+    let across = (phase.fract() / (1.0 - dwell)).min(1.0);
+    let swung = 2.0 * across - 1.0;
+    match phase < 1.0 {
+        true => swung,
+        false => -swung,
+    }
+}
+
+/// Hertz the wheel on `channel` is shaking at, and 0 where it is not shaking.
+/// A shake runs across one chart entry, so where the value sits in that entry
+/// is the whole of what it says.
+fn shake(channel: &file::Channel, value: u32) -> f32 {
+    if !channel.function(value).attribute.contains("Shake") {
+        return 0.0;
+    }
+    let [slow, fast] = SHAKE_RATE;
+    slow + channel.entry(value) * (fast - slow)
 }
 
 /// Scattering coefficient of the air, per metre: what fraction of a beam each
@@ -1008,19 +1298,26 @@ impl Default for Haze {
     }
 }
 
-/// The beam volume is described in world space, so it trails transform propagation.
+/// Gather the frame's lit cones and hand them to the beam pass. Beams are in
+/// world space, so this trails transform propagation.
 pub(super) fn project_beams(
     emitters: Query<(&Emitter, &GlobalTransform)>,
+    camera: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     haze: Res<Haze>,
-    mut beams: ResMut<Assets<BeamMaterial>>,
+    mut volumetrics: ResMut<Volumetrics>,
 ) {
+    let Ok((camera, view)) = camera.single() else { return };
+    let Some(size) = camera.physical_viewport_size() else { return };
+    let clip = camera.clip_from_view() * view.affine().inverse();
+    let cut = Vec2::from_angle(SPLIT.to_radians());
+
+    let mut list = std::mem::take(&mut volumetrics.list);
+    list.clear();
     for (emitter, global) in &emitters {
-        let Some((_, material, near)) = &emitter.beam else {
+        let Some(near) = emitter.aperture else { continue };
+        if emitter.peak <= 0.0 || list.len() >= beam::MAX_BEAMS {
             continue;
-        };
-        let Some(mut material) = beams.get_mut(material) else {
-            continue;
-        };
+        }
 
         let (_, rotation, origin) = global.to_scale_rotation_translation();
         let (axis, right, up) = (rotation * Vec3::NEG_Y, rotation * Vec3::X, rotation * Vec3::Z);
@@ -1030,31 +1327,21 @@ pub(super) fn project_beams(
         let tan = emitter.cone.outer().tan().max(1e-4);
         let lens = (near / tan).max(1e-3);
 
-        material.beam.apex = (origin - axis * lens).extend(emitter.cone.cos_inner);
-        material.beam.axis = axis.extend(emitter.cone.cos_outer);
-        material.beam.right = right.extend(lens);
-        material.beam.up = up.extend(lens + BEAM_RANGE);
-        material.beam.gobo_spin.w = haze.0;
+        let [near, far] = emitter.sides;
+        list.push(beam::Beam {
+            color: near.tint.extend(near.peak),
+            color2: far.tint.extend(far.peak),
+            apex: (origin - axis * lens).extend(emitter.cone.cos_inner),
+            axis: axis.extend(emitter.cone.cos_outer),
+            right: right.extend(lens),
+            up: up.extend(lens + BEAM_RANGE),
+            gobo: Vec4::new(emitter.gobo_spin.cos(), emitter.gobo_spin.sin(), near.layer, 0.0),
+            split: cut.extend(emitter.split).extend(far.layer),
+        });
     }
-}
 
-/// Gobos arrive without a mip chain, which leaves the beam aliasing against full
-/// resolution pixels. Build one as soon as each image lands.
-pub(super) fn mip_gobos(
-    library: Res<GdtfLibrary>,
-    mut events: MessageReader<AssetEvent<Image>>,
-    mut images: ResMut<Assets<Image>>,
-) {
-    for event in events.read() {
-        let AssetEvent::Added { id } = event else { continue };
-        let ours = library.types.values().any(|ty| ty.images.values().any(|h| h.id() == *id));
-        if !ours {
-            continue;
-        }
-        if let Some(mut image) = images.get_mut(*id) {
-            super::beam::generate_mipmaps(&mut image);
-        }
-    }
+    volumetrics.list = list;
+    beam::publish(&mut volumetrics, clip, size, haze.0);
 }
 
 /// Area of an emitting face: a lens is a disc, a glow panel is flat.
@@ -1066,12 +1353,6 @@ fn face_area(model: Option<&file::Model>, glow: bool) -> f32 {
         })
         .filter(|a| *a > 1e-6)
         .unwrap_or(1e-3)
-}
-
-/// A cone spanning `BEAM_RANGE`, with its tip end (radius `near`) at +y.
-fn cone_mesh(near: f32, angle: f32) -> Mesh {
-    let spread = BEAM_RANGE * (angle.clamp(0.5, 175.0).to_radians() / 2.0).tan();
-    Mesh::from(ConicalFrustum { height: BEAM_RANGE, radius_top: near, radius_bottom: near + spread })
 }
 
 /// Convert a GDTF transform into bevy's coordinate system.

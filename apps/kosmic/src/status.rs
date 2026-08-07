@@ -4,8 +4,9 @@
 use lib::prelude::*;
 
 use crate::logic::{STYLES, State};
+use crate::rig::Trim;
 use crate::sim::Room;
-use crate::ui::{knob, knob_log};
+use crate::ui::{knob, knob_log, pane};
 
 const SWATCH: f32 = 26.0;
 
@@ -16,13 +17,15 @@ const AIR: [(&str, f32); 5] =
 pub fn draw(
     mut ctxs: EguiContexts,
     s: Res<State>,
+    mut trim: ResMut<Trim>,
     mut room: ResMut<Room>,
     mut haze: ResMut<Haze>,
 ) -> Result {
     let ctx = ctxs.ctx_mut()?;
     let look = s.look();
 
-    egui::Window::new("Kosmic").default_width(320.0).default_pos([420.0, 24.0]).show(ctx, |ui| {
+    let panel = pane(ctx, "Kosmic", egui::Align2::LEFT_TOP, egui::Vec2::ZERO);
+    panel.default_width(320.0).show(ctx, |ui| {
         ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
 
         ui.horizontal(|ui| {
@@ -36,10 +39,10 @@ pub fn draw(
 
         ui.separator();
         ui.horizontal(|ui| {
-            swatch(ui, look.beam, "beam");
+            swatch(ui, look.beam.rgbw, "beam");
             swatch(ui, look.par, "par");
             ui.vertical(|ui| {
-                ui.label(format!("palette  {}", s.palette.name()));
+                ui.label(format!("palette  {} ({})", s.palette.name(), s.banks[s.bank].name));
                 ui.label(format!("bright   {:.0}%", s.brightness * 100.0));
             });
         });
@@ -51,7 +54,9 @@ pub fn draw(
             row(ui, "movement", &format!("{:?}", look.movement));
             row(ui, "style", &format!("{} (seed {})", STYLES[s.style].name, s.seed));
             row(ui, "texture", &format!("zoom {:.2}  focus {:.2}  {:?}", t.zoom, t.focus, t.ring));
-            row(ui, "optics", &format!("gobo {}  prism {}  frost {:.2}", t.gobo, t.prism, t.frost));
+            row(ui, "optics", &format!("gobo {}  prism {:?}  frost {:.2}", t.gobo.name(), t.prism, t.frost));
+            let (one, two) = (look.beam.one, look.beam.two);
+            row(ui, "wheels", &format!("{}  {}", one.name(), two.name()));
         });
 
         ui.separator();
@@ -70,6 +75,15 @@ pub fn draw(
             }
         });
 
+        // Trim: what each family is worth once the show has had its say, for
+        // matching fixtures that are nowhere near each other in output.
+        ui.separator();
+        knob(ui, "global", &mut trim.global, 0.0..=1.0);
+        knob(ui, "outcast ring", &mut trim.ring, 0.0..=1.0);
+        knob(ui, "outcast beam", &mut trim.beam, 0.0..=1.0);
+        knob(ui, "hydro", &mut trim.hydro, 0.0..=1.0);
+        knob(ui, "colorado", &mut trim.colorado, 0.0..=1.0);
+
         ui.separator();
         knob(ui, "room lx", &mut room.0, 0.0..=200.0);
         // Four decades of air, so logarithmic. The far left is still exactly
@@ -81,6 +95,19 @@ pub fn draw(
                     haze.0 = sigma;
                 }
             }
+        });
+
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Save").clicked()
+                    && let Err(e) = trim.save(&room, &haze)
+                {
+                    warn!("failed to save rig: {e}");
+                }
+                if ui.button("Reload").clicked() {
+                    trim.reload(&mut room, &mut haze);
+                }
+            });
         });
     });
     Ok(())

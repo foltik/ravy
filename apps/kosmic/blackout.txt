@@ -1,0 +1,4 @@
+OutcastBeamwash.0 60 20 20 45 20 20 0
+OutcastBeamwash.1 60 20 20 -45 20 20 0
+HydroSpot.0 90 40 30 0 60 30 1
+HydroSpot.1 90 40 30 0 60 30 1

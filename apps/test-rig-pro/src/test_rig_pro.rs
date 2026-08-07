@@ -1,4 +1,7 @@
-use lib::lights::fixture::{ColoradoSolo, HydroSpot, OutcastBeamwash};
+use lib::lights::fixture::{
+    ColoradoSolo, HydroSpot, HydroSpotGobo as Gobo, HydroSpotPrism as Prism, HydroSpotWheel1 as Wheel1,
+    HydroSpotWheel2 as Wheel2, OutcastBeamwash,
+};
 use lib::prelude::*;
 
 /// Test app for the ENTTEC DMX USB PRO rig: 2x Rogue Outcast BeamWash (37CH),
@@ -256,7 +259,7 @@ pub fn render(s: Res<State>, mut enttec: ResMut<Enttec>) {
 
     if s.colorados_on {
         for addr in COLORADO_ADDRS {
-            ColoradoSolo { color, alpha: dim, zoom }.encode(&mut dmx[addr - 1..]);
+            ColoradoSolo { color, alpha: dim, zoom, ..default() }.encode(&mut dmx[addr - 1..]);
         }
     }
 
@@ -344,12 +347,42 @@ pub fn draw_ui(mut ctxs: EguiContexts, mut s: ResMut<State>) -> Result {
 
             ui.separator();
             ui.heading("Hydro wheels");
-            ui.add(egui::Slider::new(&mut s.hydro.color, 0..=255).text("color wheel 1"));
-            ui.add(egui::Slider::new(&mut s.hydro.color2, 0..=255).text("color wheel 2"));
-            ui.add(egui::Slider::new(&mut s.hydro.gobo, 0..=255).text("gobo wheel"));
+            ui.label("color wheel 1");
+            ui.horizontal_wrapped(|ui| {
+                for w in Wheel1::ALL {
+                    if ui.selectable_label(s.hydro.color == w, w.name()).clicked() {
+                        s.hydro.color = w;
+                    }
+                }
+            });
+            ui.label("color wheel 2");
+            ui.horizontal_wrapped(|ui| {
+                for w in Wheel2::ALL {
+                    if ui.selectable_label(s.hydro.color2 == w, w.name()).clicked() {
+                        s.hydro.color2 = w;
+                    }
+                }
+            });
+            ui.label("gobo wheel");
+            ui.horizontal_wrapped(|ui| {
+                for g in Gobo::ALL {
+                    if ui.selectable_label(s.hydro.gobo == g, g.name()).clicked() {
+                        s.hydro.gobo = g;
+                    }
+                }
+            });
+            ui.add(egui::Slider::new(&mut s.hydro.gobo_shake, 0.0..=1.0).text("gobo shake"));
             ui.add(egui::Slider::new(&mut s.hydro.gobo_rot, 0..=255).text("gobo rotation"));
-            ui.add(egui::Slider::new(&mut s.hydro.prism, 0..=255).text("prism"));
-            ui.add(egui::Slider::new(&mut s.hydro.prism_rot, 0..=255).text("prism rotation"));
+            ui.horizontal(|ui| {
+                for (prism, name) in
+                    [(Prism::Off, "no prism"), (Prism::Linear, "linear"), (Prism::Circular, "circular")]
+                {
+                    if ui.selectable_label(s.hydro.prism == prism, name).clicked() {
+                        s.hydro.prism = prism;
+                    }
+                }
+            });
+            ui.add(egui::Slider::new(&mut s.hydro.prism_rot, -1.0..=1.0).text("prism rotation"));
             ui.add(egui::Slider::new(&mut s.hydro.focus, 0.0..=1.0).text("focus"));
             ui.add(egui::Slider::new(&mut s.hydro.frost, 0.0..=1.0).text("heavy frost"));
             ui.add(egui::Slider::new(&mut s.hydro.frost2, 0.0..=1.0).text("medium frost"));

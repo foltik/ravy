@@ -30,7 +30,8 @@ impl Plugin for RavyPlugin {
         app.register_asset_source("gdtf", AssetSourceBuilder::new(move || Box::new(reader.clone())));
 
         app.add_plugins(DefaultPlugins.set(bevy::log::LogPlugin {
-            filter: format!("{deps_log_level},{}={app_log_level}", self.module),
+            // lib is ours too, so it speaks at the app's level, not a dep's.
+            filter: format!("{deps_log_level},lib={app_log_level},{}={app_log_level}", self.module),
             ..default()
         }))
         .add_plugins(super::gltf::GltfScenePlugin)

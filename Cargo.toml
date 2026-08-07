@@ -60,6 +60,10 @@ features = [
     "gltf_animation",
     # Light cookies: PointLightTexture / SpotLightTexture / DirectionalLightTexture.
     "pbr_light_textures",
+    # Hardware raytracing. Only the scene half is used: the beam pass traces its
+    # own occlusion against the acceleration structure this builds, and none of
+    # solari's lighting passes are added.
+    "bevy_solari",
     # Populates the type registry, which the inspector reads. Part of bevy's
     # default features, which we opt out of.
     "reflect_auto_register",

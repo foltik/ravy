@@ -1,0 +1,10 @@
+OutcastBeamwash.0 21A4:07312D2D
+OutcastBeamwash.1 21A4:07312D25
+HydroSpot.0 1900:00260758
+HydroSpot.1 1900:0026077F
+ColoradoSolo.0 21A4:0464175E
+ColoradoSolo.1 21A4:04641741
+ColoradoSolo.2 21A4:04641728
+ColoradoSolo.3 21A4:04641723
+ColoradoSolo.4 21A4:04641784
+ColoradoSolo.5 21A4:0464177E

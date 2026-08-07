@@ -1,6 +1,10 @@
+// None are bound while the grid runs the mslive layout.
+#![allow(dead_code)]
+
 use lib::prelude::*;
 
-use super::look::{Energy, Look, Movement, RingMode, Texture};
+use super::Swatch;
+use super::look::{Energy, Gobo, Look, Movement, Prism, Texture};
 
 ///////////////////////// SPECIALS /////////////////////////
 
@@ -39,11 +43,7 @@ pub const BLACKOUT: Special = Special { name: "blackout", fire: Fire::Hold, colo
 
 #[rustfmt::skip]
 pub const WHITE_STROBE: Special = Special { name: "white strobe", fire: Fire::Hold, color: Rgbw::WHITE,
-    look: Look { energy: Some(Energy::Strobe { pd: Pd(1, 8), duty: 1.0 }), color: Some(Rgbw::WHITE), ..Look::NONE } };
-
-#[rustfmt::skip]
-pub const SNIPER: Special = Special { name: "sniper", fire: Fire::Hold, color: Rgbw::PEA,
-    look: Look { movement: Some(Movement::Out), texture: Some(Texture { zoom: 0.0, ring: RingMode::Center, ..Texture::OPEN }), ..Look::NONE } };
+    look: Look { energy: Some(Energy::Strobe { pd: Pd(1, 8), duty: 1.0 }), color: Some(Swatch::WHITE), ..Look::NONE } };
 
 #[rustfmt::skip]
 pub const RISER: Special = Special { name: "riser", fire: Fire::OneShot { pd: Pd(8, 1) }, color: Rgbw::MINT,
@@ -55,11 +55,11 @@ pub const WHIRL: Special = Special { name: "whirl", fire: Fire::OneShot { pd: Pd
 
 #[rustfmt::skip]
 pub const PRISM: Special = Special { name: "prism", fire: Fire::Latch, color: Rgbw::VIOLET,
-    look: Look { texture: Some(Texture { prism: 30, prism_rot: 200, ..Texture::OPEN }), ..Look::NONE } };
+    look: Look { texture: Some(Texture { prism: Prism::Linear, prism_rot: 0.1, ..Texture::OPEN }), ..Look::NONE } };
 
 #[rustfmt::skip]
 pub const GOBO: Special = Special { name: "gobo", fire: Fire::Latch, color: Rgbw::ORANGE,
-    look: Look { texture: Some(Texture { gobo: 40, gobo_rot: 200, focus: 0.4, ..Texture::OPEN }), ..Look::NONE } };
+    look: Look { texture: Some(Texture { gobo: Gobo::Lines, gobo_rot: 200, focus: 0.4, ..Texture::OPEN }), ..Look::NONE } };
 
 #[rustfmt::skip]
 pub const DJ: Special = Special { name: "dj", fire: Fire::Latch, color: Rgbw::YELLOW,

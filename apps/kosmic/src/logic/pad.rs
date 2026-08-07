@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use lib::prelude::*;
 
-use super::{Energy, Palette, Special, State};
+use super::{Energy, Look, Palette, Special, State};
 use crate::mirror::Pad;
 
 ///////////////////////// BINDINGS /////////////////////////
@@ -15,6 +15,8 @@ pub struct PadBinding {
 #[derive(Clone)]
 pub enum PadOp {
     Energy(Energy),
+    /// The whole base look: energy, movement and how fast it runs.
+    Look(Look),
     Palette(Box<dyn Palette>),
     Special(Special),
     Beat {
@@ -32,12 +34,11 @@ impl PadOp {
     /// What this button does, for the mirror's tooltips.
     pub fn name(&self) -> String {
         match self {
-            PadOp::Energy(e) => match e {
-                Energy::Off => "energy: off".into(),
-                Energy::On => "energy: on".into(),
-                Energy::Beat { pd } => format!("energy: beat {pd:?}"),
-                Energy::Strobe { pd, .. } => format!("energy: strobe {pd:?}"),
-                Energy::Chase { pd } => format!("energy: chase {pd:?}"),
+            PadOp::Energy(e) => format!("energy: {}", energy_name(e)),
+            PadOp::Look(look) => match (look.energy, look.movement) {
+                (Some(e), Some(m)) => format!("{} {m:?}", energy_name(&e)),
+                (Some(e), None) => energy_name(&e),
+                _ => "look".into(),
             },
             PadOp::Palette(p) => format!("palette: {}", p.name()),
             PadOp::Special(s) => format!("special: {}", s.name),
@@ -46,6 +47,18 @@ impl PadOp {
             }
             PadOp::Func { name, .. } => name.to_string(),
         }
+    }
+}
+
+fn energy_name(e: &Energy) -> String {
+    match e {
+        Energy::Off => "off".into(),
+        Energy::On => "on".into(),
+        Energy::Beat { pd } => format!("beat {pd:?}"),
+        Energy::Strobe { pd, .. } => format!("strobe {pd:?}"),
+        Energy::Chase { pd } => format!("chase {pd:?}"),
+        Energy::Swell { pd } => format!("swell {pd:?}"),
+        Energy::Alternate { pd } => format!("alternate {pd:?}"),
     }
 }
 
@@ -71,6 +84,13 @@ macro_rules! bind {
 macro_rules! energy {
     ($($v:tt)*) => {
         $crate::logic::PadOp::Energy($crate::logic::Energy::$($v)*)
+    };
+}
+
+#[macro_export]
+macro_rules! look {
+    ($v:expr) => {
+        $crate::logic::PadOp::Look($v)
     };
 }
 

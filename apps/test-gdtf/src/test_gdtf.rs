@@ -4,18 +4,19 @@ use std::path::PathBuf;
 
 use bevy::camera::primitives::Aabb;
 use bevy::camera::{Exposure, Hdr};
-use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::math::primitives::{Cone, Cuboid, Plane3d};
 use bevy::post_process::bloom::Bloom;
 use lib::gdtf::{
-    Axle, BeamCone, Emitter, GdtfFixture, GdtfLibrary, GdtfType, Haze, Motor, corners, motion,
+    Axle, Emitter, GdtfFixture, GdtfLibrary, GdtfType, Haze, Motor, corners, motion,
 };
 use lib::prelude::*;
 
 mod dmx;
 use dmx::Dmx;
+
+mod pattern;
 
 
 /// Library key for the one fixture this app previews.
@@ -107,6 +108,7 @@ fn patch(
     assets: Res<AssetServer>,
     mut fixture: Option<Single<(&mut GdtfFixture, &mut Transform), With<Fixture>>>,
     mut loaded: Local<bool>,
+    mut tuned: Local<bool>,
 ) -> Result {
     if !*loaded {
         *loaded = true;
@@ -126,6 +128,18 @@ fn patch(
     // Values land on the first build; the preset goes over the top of them.
     if fixture.is_built() && !rig.fitted && let Some(ty) = library.get(KIND) {
         apply_preset(fixture, ty, rig.preset.as_deref());
+    }
+    // Once only, so a mode change or a rehome cannot throw away edits made in
+    // the Tuning section.
+    if fixture.is_built() && !*tuned {
+        *tuned = true;
+        if let Some(ty) = library.get(KIND)
+            && let Some(rdm) = &ty.gdtf.rdm
+            && let Some(fitted) = lib::lights::fixture::motion_for(rdm.manufacturer, rdm.model)
+        {
+            fixture.motion = fitted;
+            info!("using measured travel for {:#06x}:{:#06x}", rdm.manufacturer, rdm.model);
+        }
     }
     Ok(())
 }
@@ -174,9 +188,6 @@ fn setup(mut cmds: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mats: ResMut<
         Hdr,
         // A blacked-out venue, not bevy's default daylight.
         Exposure { ev100: Exposure::EV100_INDOOR },
-        // The beam volume ends its march at this, so a shaft stops
-        // at whatever it lands on instead of carrying on through it.
-        DepthPrepass,
         Bloom::NATURAL,
         Tonemapping::TonyMcMapface,
         DebandDither::Enabled,
@@ -263,7 +274,7 @@ fn local_bounds(
     entity: Entity,
     global: &GlobalTransform,
     children: &Query<&Children>,
-    bounds: &Query<(&Aabb, &GlobalTransform), Without<BeamCone>>,
+    bounds: &Query<(&Aabb, &GlobalTransform)>,
 ) -> Option<(Vec3, Vec3)> {
     let inverse = global.affine().inverse();
     let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
@@ -287,7 +298,7 @@ fn fit(
     framing: Res<Framing>,
     root: Single<(Entity, &mut Transform), With<Fixture>>,
     children: Query<&Children>,
-    bounds: Query<(&Aabb, &GlobalTransform), Without<BeamCone>>,
+    bounds: Query<(&Aabb, &GlobalTransform)>,
     mut arrow: Single<&mut Transform, (With<FrontArrow>, Without<Fixture>)>,
 ) {
     if rig.fitted {
@@ -380,6 +391,7 @@ fn draw_ui(
     motors: Query<&Motor>,
     fixture: Option<Single<&mut GdtfFixture, With<Fixture>>>,
     mut view: Local<motion::View>,
+    mut shape: Local<pattern::Pattern>,
     mut fps: Local<f32>,
     mut shrunk: Local<bool>,
 ) -> Result {
@@ -487,9 +499,16 @@ fn draw_ui(
                     }
                     ui.add(egui::DragValue::new(&mut values[i]).range(0..=channel.max()));
                     let function = channel.function(values[i]);
-                    let slot = channel.slot(values[i]).and_then(|(w, s)| ty.gdtf.wheels.get(w)?.get(s));
+                    let slot = channel.slot(values[i]).and_then(|(w, s, offset)| {
+                        let slots = ty.gdtf.wheels.get(w)?;
+                        let name = slots.get(s)?.name.clone();
+                        match offset > 0.0 {
+                            true => Some(format!("{name} / {}", slots.get((s + 1) % slots.len())?.name)),
+                            false => Some(name),
+                        }
+                    });
                     ui.label(match slot {
-                        Some(slot) => format!("{} = {}", function.name, slot.name),
+                        Some(slot) => format!("{} = {slot}", function.name),
                         None => format!("{} = {:.2}", function.name, channel.physical(values[i])),
                     });
                     ui.end_row();
@@ -553,6 +572,40 @@ fn draw_ui(
             let axes: Vec<_> =
                 axes.into_iter().map(|(order, name, trace)| (name, trace, params[order])).collect();
             motion::plot(ui, &mut view, &axes);
+        });
+
+    egui::Window::new("Pattern")
+        .default_size([560.0, 720.0])
+        .default_pos([screen.right() - 800.0, 30.0])
+        .resizable(true)
+        .show(ctx, |ui| {
+            let ty = library.get(KIND).unwrap();
+            let params = fixture.motion;
+            // Travel comes from the mode's own channel, so a fixture with a
+            // different pan range quantises against the range it really has.
+            let find = |attribute: &str| {
+                ty.mode().channels.iter().position(|c| c.attribute == attribute)
+            };
+            let axis = |attribute: &str, axle: usize| {
+                let channel = find(attribute).map(|i| &ty.mode().channels[i]);
+                let range = channel
+                    .map(|c| (c.physical(c.max()) - c.physical(0)).abs())
+                    .filter(|r| *r > 0.0)
+                    .unwrap_or(360.0);
+                pattern::Axis { params: params[axle], range }
+            };
+            let sending = pattern::draw(ui, &mut shape, [axis("Pan", 0), axis("Tilt", 1)], time.elapsed_secs_f64());
+
+            // Writing the channels rather than the motors is what keeps the
+            // sliders, the 3d head, the motion traces and the wire all showing
+            // the same move.
+            if let Some(at) = sending {
+                for (attribute, degrees) in [("Pan", at.x), ("Tilt", at.y)] {
+                    if let Some(i) = find(attribute) {
+                        fixture.values[i] = ty.mode().channels[i].value_at(degrees);
+                    }
+                }
+            }
         });
 
     if mode != library.get(KIND).unwrap().mode {

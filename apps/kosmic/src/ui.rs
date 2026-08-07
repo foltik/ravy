@@ -9,6 +9,49 @@ use lib::prelude::*;
 const LABEL: f32 = 62.0;
 const VALUE: f32 = 52.0;
 
+/// What every panel keeps between itself and the edge of the view, and between
+/// itself and the panel beside it.
+pub const MARGIN: f32 = 16.0;
+
+/// A panel held in a corner of the view, `off` further in from it, until it is
+/// dragged; after that it stays where it was put.
+///
+/// egui places a window on the frame it first appears and leaves it there. That
+/// frame is before the app has settled at the size it is really going to be and
+/// before the panels have grown to fit their contents, so panels left to place
+/// themselves end up stranded in the middle of the view.
+pub fn pane(
+    ctx: &egui::Context,
+    name: &str,
+    corner: egui::Align2,
+    off: egui::Vec2,
+) -> egui::Window<'static> {
+    let id = egui::Id::new(name);
+    let held = egui::Id::new((name, "held"));
+
+    // Areas drag under their own id; nothing else here can tell a drag from
+    // egui pulling an oversized panel back onto the screen.
+    let dragged = ctx.is_being_dragged(id.with("move"));
+    let free = dragged || ctx.data(|d| d.get_temp::<bool>(held)).unwrap_or(false);
+    ctx.data_mut(|d| d.insert_temp(held, free));
+
+    let window = egui::Window::new(name.to_string()).id(id).pivot(corner);
+    if free {
+        return window;
+    }
+    let inward = egui::vec2(inward(corner.x()), inward(corner.y()));
+    let at = corner.pos_in_rect(&ctx.content_rect()) + inward * (egui::Vec2::splat(MARGIN) + off);
+    window.current_pos(at)
+}
+
+/// Which way is into the view from an edge.
+fn inward(align: egui::Align) -> f32 {
+    match align {
+        egui::Align::Max => -1.0,
+        _ => 1.0,
+    }
+}
+
 pub const DARK: egui::Color32 = egui::Color32::from_gray(52);
 pub const GREEN: egui::Color32 = egui::Color32::from_rgb(80, 230, 120);
 pub const RED: egui::Color32 = egui::Color32::from_rgb(230, 80, 80);
@@ -41,7 +84,45 @@ pub fn knob<T: egui::emath::Numeric>(
     value: &mut T,
     range: RangeInclusive<T>,
 ) -> bool {
-    row(ui, label, value, range, false)
+    row(ui, label, value, range, Shape::Linear)
+}
+
+/// A [`knob`] for a value that runs either side of zero, ticked at the middle
+/// and landing exactly on it when let go near there.
+pub fn knob_centered<T: egui::emath::Numeric>(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut T,
+    range: RangeInclusive<T>,
+) -> bool {
+    row(ui, label, value, range, Shape::Centered)
+}
+
+/// How many choices a [`pick`] puts on a row before wrapping onto the next.
+const PER_ROW: usize = 3;
+
+/// One `[label] [choice]...` row, of which exactly one choice is set. A long
+/// list wraps rather than widening the panel to fit it.
+pub fn pick<T: PartialEq + Copy>(ui: &mut egui::Ui, label: &str, value: &mut T, choices: &[(T, &str)]) {
+    let height = ui.spacing().interact_size.y;
+    for (i, row) in choices.chunks(PER_ROW).enumerate() {
+        ui.horizontal(|ui| {
+            ui.allocate_ui_with_layout(
+                egui::vec2(LABEL, height),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    if i == 0 {
+                        ui.label(label);
+                    }
+                },
+            );
+            for (choice, name) in row {
+                if ui.selectable_label(*value == *choice, *name).clicked() {
+                    *value = *choice;
+                }
+            }
+        });
+    }
 }
 
 /// A [`knob`] whose slider is logarithmic, for a value spanning decades. The
@@ -52,15 +133,26 @@ pub fn knob_log<T: egui::emath::Numeric>(
     value: &mut T,
     range: RangeInclusive<T>,
 ) -> bool {
-    row(ui, label, value, range, true)
+    row(ui, label, value, range, Shape::Log)
 }
+
+enum Shape {
+    Linear,
+    /// Logarithmic, for a value spanning decades.
+    Log,
+    /// Linear, with zero marked and held.
+    Centered,
+}
+
+/// How near zero counts as zero on a centered row, as a fraction of the range.
+const DETENT: f64 = 0.02;
 
 fn row<T: egui::emath::Numeric>(
     ui: &mut egui::Ui,
     label: &str,
     value: &mut T,
     range: RangeInclusive<T>,
-    logarithmic: bool,
+    shape: Shape,
 ) -> bool {
     let height = ui.spacing().interact_size.y;
     let span = range.end().to_f64() - range.start().to_f64();
@@ -77,11 +169,23 @@ fn row<T: egui::emath::Numeric>(
         changed |= ui.add_sized([VALUE, height], drag).changed();
 
         ui.spacing_mut().slider_width = (ui.available_width() - ui.spacing().item_spacing.x).max(40.0);
+        let start = *range.start();
         let slider = egui::Slider::new(value, range)
-            .logarithmic(logarithmic)
+            .logarithmic(matches!(shape, Shape::Log))
             .smallest_positive(1e-5)
             .show_value(false);
-        changed |= ui.add(slider).changed();
+        let response = ui.add(slider);
+        changed |= response.changed();
+
+        if let Shape::Centered = shape {
+            let rect = response.rect;
+            let zero = rect.left() + rect.width() * ((-start.to_f64() / span) as f32);
+            let stroke = egui::Stroke::new(1.0_f32, ui.visuals().weak_text_color());
+            ui.painter().vline(zero, rect.center().y - 6.0..=rect.center().y + 6.0, stroke);
+            if value.to_f64().abs() < span * DETENT {
+                *value = T::from_f64(0.0);
+            }
+        }
     });
     changed
 }

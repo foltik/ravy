@@ -112,9 +112,21 @@ pub struct Function {
     pub physical: (f32, f32),
     /// Wheel this function selects from, if any.
     pub wheel: Option<String>,
-    /// (first DMX value, 1-based wheel slot). Slot 0 means no slot, which is
-    /// how the continuous-rotation ranges are written.
-    pub sets: Vec<(u32, u32)>,
+    pub sets: Vec<Set>,
+}
+
+/// One entry of a channel's chart.
+pub struct Set {
+    /// First DMX value of this set.
+    pub from: u32,
+    /// 1-based wheel slot. Slot 0 means no slot, which is how the
+    /// continuous-rotation ranges are written.
+    pub slot: u32,
+    /// How far the wheel has turned toward the next slot: 0.5 at the half
+    /// steps, where the gate shows two slots at once.
+    pub offset: f32,
+    /// Range this entry alone covers, where it declares one.
+    pub physical: Option<(f32, f32)>,
 }
 
 impl Gdtf {
@@ -350,6 +362,49 @@ impl Channel {
         f.physical.0 + t * (f.physical.1 - f.physical.0)
     }
 
+    /// Physical value at `value`, taken across the chart entry it lands in
+    /// rather than the whole function. A function holding several rotation
+    /// ranges runs them at different rates and in opposite directions, which
+    /// its own two endpoints cannot describe.
+    pub fn rate(&self, value: u32) -> f32 {
+        let i = self.functions.iter().rposition(|f| f.from <= value).unwrap_or(0);
+        let function = &self.functions[i];
+        let end = self.functions.get(i + 1).map_or(self.max(), |next| next.from.saturating_sub(1));
+
+        let Some(i) = function.sets.iter().rposition(|s| s.from <= value) else {
+            return self.physical(value);
+        };
+        let set = &function.sets[i];
+        let Some((from, to)) = set.physical else { return self.physical(value) };
+        let end = function.sets.get(i + 1).map_or(end, |next| next.from.saturating_sub(1));
+        let t = match end > set.from {
+            true => (value.min(end) - set.from) as f32 / (end - set.from) as f32,
+            false => 0.0,
+        };
+        from + t * (to - from)
+    }
+
+    /// Lowest value whose [`Self::physical`] reaches `physical`, clamped to the
+    /// channel. Bisection rather than arithmetic, so it inverts a channel cut
+    /// into several functions without caring which way round they run.
+    pub fn value_at(&self, physical: f32) -> u32 {
+        let max = self.max();
+        let rising = self.physical(max) >= self.physical(0);
+        let (mut lo, mut hi) = (0, max);
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            let below = match rising {
+                true => self.physical(mid) < physical,
+                false => self.physical(mid) > physical,
+            };
+            match below {
+                true => lo = mid + 1,
+                false => hi = mid,
+            }
+        }
+        lo
+    }
+
     /// Position within the channel's whole physical range, 0 at its low end.
     /// The GDTF's declared endpoints are nominal, so a curve measured across the
     /// travel is indexed by this rather than by the degrees it claims.
@@ -366,14 +421,36 @@ impl Channel {
         }
     }
 
-    /// Wheel and 0-based slot selected at `value`, if this channel picks one.
-    /// The continuous-rotation ranges select no slot.
-    pub fn slot(&self, value: u32) -> Option<(&str, usize)> {
+    /// Position within the chart entry `value` lands in, `0..1`. A shake or a
+    /// speed runs from end to end of one entry, which the channel's own
+    /// physical range says nothing about: the six shake entries of a gobo wheel
+    /// all run the same 1-5 Hz.
+    pub fn entry(&self, value: u32) -> f32 {
+        let function = self.function(value);
+        let Some(i) = function.sets.iter().rposition(|s| s.from <= value) else {
+            return 0.0;
+        };
+        let from = function.sets[i].from;
+        let next = self.functions.iter().map(|f| f.from).filter(|&f| f > function.from).min();
+        let to = match function.sets.get(i + 1).map(|s| s.from).or(next) {
+            Some(end) => end.saturating_sub(1),
+            None => self.max(),
+        };
+        match to > from {
+            true => (value.min(to) - from) as f32 / (to - from) as f32,
+            false => 0.0,
+        }
+    }
+
+    /// Wheel, 0-based slot, and how far the wheel has turned toward the next
+    /// slot at `value`, if this channel picks one. The continuous-rotation
+    /// ranges select no slot.
+    pub fn slot(&self, value: u32) -> Option<(&str, usize, f32)> {
         let function = self.function(value);
         let wheel = function.wheel.as_deref()?;
-        let i = function.sets.iter().rposition(|(from, _)| *from <= value)?;
-        let slot = function.sets[i].1;
-        (slot > 0).then(|| (wheel, slot as usize - 1))
+        let i = function.sets.iter().rposition(|s| s.from <= value)?;
+        let set = &function.sets[i];
+        (set.slot > 0).then(|| (wheel, set.slot as usize - 1, set.offset))
     }
 
     pub fn label(&self) -> String {
@@ -441,10 +518,24 @@ fn parse_mode(n: roxmltree::Node) -> Mode {
                         .children()
                         .filter(|s| s.has_tag_name("ChannelSet"))
                         .map(|s| {
-                            (
-                                parse_dmx(s.attribute("DMXFrom").unwrap_or_default(), bytes),
-                                s.attribute("WheelSlotIndex").and_then(|v| v.parse().ok()).unwrap_or(0),
-                            )
+                            // A wheel set's physical value is where between this slot and the
+                            // next the wheel sits; on anything else (shake rates) it is not a
+                            // position and does not belong in 0..1.
+                            let offset = attr_f32(s, "PhysicalFrom");
+                            Set {
+                                from: parse_dmx(s.attribute("DMXFrom").unwrap_or_default(), bytes),
+                                slot: s
+                                    .attribute("WheelSlotIndex")
+                                    .and_then(|v| v.parse().ok())
+                                    .unwrap_or(0),
+                                offset: match (0.0..1.0).contains(&offset) {
+                                    true => offset,
+                                    false => 0.0,
+                                },
+                                physical: (s.has_attribute("PhysicalFrom")
+                                    || s.has_attribute("PhysicalTo"))
+                                .then(|| (offset, attr_f32(s, "PhysicalTo"))),
+                            }
                         })
                         .collect(),
                 });
@@ -521,4 +612,54 @@ fn image_name(file: &str) -> String {
 fn asset_name(file: &str) -> String {
     let stem: String = file.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
     format!("{stem}.glb")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A 16-bit travel channel running `from` to `to` degrees.
+    fn travel(from: f32, to: f32) -> Channel {
+        Channel {
+            geometry: "Yoke".into(),
+            attribute: "Pan".into(),
+            offsets: vec![1, 2],
+            default: 32768,
+            functions: vec![Function {
+                name: "Pan".into(),
+                attribute: "Pan".into(),
+                from: 0,
+                physical: (from, to),
+                wheel: None,
+                sets: vec![],
+            }],
+        }
+    }
+
+    /// Driving the fixture from degrees needs `physical` inverted exactly, in
+    /// whichever direction the channel is declared.
+    #[test]
+    fn value_at_round_trips() {
+        for channel in [travel(-270.0, 270.0), travel(130.0, -130.0)] {
+            for value in [0, 1, 12345, 32768, 60000, 65534, 65535] {
+                let back = channel.value_at(channel.physical(value));
+                assert!(
+                    back.abs_diff(value) <= 1,
+                    "{value} -> {}\u{b0} -> {back}",
+                    channel.physical(value)
+                );
+            }
+        }
+    }
+
+    /// Out-of-range aims clamp to the ends rather than wrapping.
+    #[test]
+    fn value_at_clamps() {
+        let channel = travel(-270.0, 270.0);
+        assert_eq!(channel.value_at(-1000.0), 0);
+        assert_eq!(channel.value_at(1000.0), 65535);
+        let flipped = travel(130.0, -130.0);
+        assert_eq!(flipped.value_at(1000.0), 0);
+        assert_eq!(flipped.value_at(-1000.0), 65535);
+    }
 }

@@ -8,13 +8,14 @@ mod beam;
 mod file;
 mod fixture;
 pub mod motion;
+mod outcast;
 mod photometry;
 
-pub use beam::BeamMaterial;
+pub use beam::Volumetrics;
 pub use file::{Channel, Gdtf, Geometry, Kind, Mode, Model, Slot};
 pub use fixture::{
-    Axle, BeamCone, Emitter, GdtfDevice, GdtfFixture, GdtfLibrary, GdtfType, Haze, Motor, Standing,
-    Universe, corners,
+    Axle, Emitter, GdtfDevice, GdtfFixture, GdtfLibrary, GdtfType, Haze, Motor, Standing, Universe,
+    WHEEL_SPEED, corners, declared_travel,
 };
 pub use photometry::{Photometry, Profile, luminance, xy_to_rgb};
 
@@ -30,13 +31,17 @@ pub struct GdtfSystems;
 
 impl Plugin for GdtfPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(beam::BeamPlugin)
+        // Builds the acceleration structure the beam pass traces occlusion
+        // against. Solari's lighting passes are deliberately left out: they only
+        // handle directional lights, and every fixture here is a spot.
+        app.add_plugins(bevy::solari::scene::RaytracingScenePlugin)
+            .add_plugins(beam::BeamPlugin)
             .insert_resource(GdtfLibrary::new(self.models.clone()))
             .init_resource::<Haze>()
             .add_systems(Startup, fixture::setup)
             .add_systems(
                 Update,
-                (fixture::build, fixture::drive, fixture::apply, fixture::mip_gobos)
+                (beam::pack_gobos, fixture::build, fixture::drive, fixture::apply)
                     .chain()
                     .in_set(GdtfSystems),
             )

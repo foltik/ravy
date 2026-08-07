@@ -2,7 +2,7 @@ use lib::midi::device::launch_control_xl::{self as ctl, LaunchControlXL};
 use lib::midi::device::launchpad_x::{self as lpx, LaunchpadX};
 use lib::prelude::*;
 
-use crate::ui::device_header;
+use crate::ui::{MARGIN, device_header, pane};
 
 ///////////////////////// PAD /////////////////////////
 
@@ -140,7 +140,16 @@ impl Ctrl {
 ///////////////////////// DRAW /////////////////////////
 
 /// What each Launch Control XL slider drives, for the tooltips.
-const SLIDERS: [&str; 8] = ["", "", "", "", "", "", "", "brightness"];
+const SLIDERS: [&str; 8] = [
+    "brightness",
+    "outcast zoom",
+    "hydro zoom",
+    "colorado zoom",
+    "prism rotation",
+    "outcast trim",
+    "hydro trim",
+    "colorado trim",
+];
 
 pub fn draw(
     mut ctxs: EguiContexts,
@@ -159,7 +168,12 @@ pub fn draw(
         ctx.global_style_mut(|s| s.interaction.tooltip_delay = 0.05);
     }
 
-    egui::Window::new("Launchpad X").id(egui::Id::new("pad")).show(ctx, |ui| {
+    // Both sit in the bottom left corner, the control surface beside the pad.
+    // Started narrow so the header's separator, which fills the width it is
+    // given, does not hold the panel at egui's default window width.
+    let pad_pane =
+        pane(ctx, "Launchpad X", egui::Align2::LEFT_BOTTOM, egui::Vec2::ZERO).default_width(0.0);
+    let pad_shown = pad_pane.show(ctx, |ui| {
         device_header(ui, pad.name(), pad.connected());
         ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
         for y in (0..9usize).rev() {
@@ -179,9 +193,8 @@ pub fn draw(
                         egui::StrokeKind::Inside,
                     );
 
-                    let bound = state.perform.iter().find(|b| b.xy == (x as i8, y as i8));
-                    if let Some(bound) = bound {
-                        resp.clone().on_hover_text(bound.op.name());
+                    if let Some(op) = state.binding((x as i8, y as i8)) {
+                        resp.clone().on_hover_text(op.name());
                     }
 
                     let down = resp.is_pointer_button_down_on();
@@ -206,7 +219,11 @@ pub fn draw(
         }
     });
 
-    egui::Window::new("Launch Control XL").id(egui::Id::new("ctrl")).show(ctx, |ui| {
+    // Whatever width the pad came out, so the two never overlap or leave a gap.
+    let beside = pad_shown.map_or(0.0, |pad| pad.response.rect.width() + MARGIN);
+    let ctrl_pane = pane(ctx, "Launch Control XL", egui::Align2::LEFT_BOTTOM, egui::vec2(beside, 0.0))
+        .default_width(0.0);
+    ctrl_pane.show(ctx, |ui| {
         device_header(ui, ctrl.name(), ctrl.connected());
         ui.horizontal(|ui| {
             for i in 0..8 {

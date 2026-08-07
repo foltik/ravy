@@ -1,9 +1,11 @@
 //! Pan, tilt and zoom travel, rather than teleporting to whatever the DMX says.
 //!
-//! A yoke ramps up, cruises, and brakes, and it takes a different path for a
-//! nudge than for a full sweep: short moves run at a slow constant speed with no
-//! ramp at all, which is why a fixture creeps through small corrections and
-//! slams through big ones. Ported from dmxsim.
+//! A yoke ramps up, cruises and brakes, all three of speed, acceleration and
+//! jerk bounded. Rather than nudge the axis a frame at a time and hope, each new
+//! target is answered with the whole move planned end to end: a handful of
+//! constant-jerk pieces whose durations are solved for, and which are then
+//! evaluated as the cubics they are. Nothing is integrated, so the path does not
+//! depend on the frame rate and cannot drift, ring or stall part way.
 
 use std::collections::VecDeque;
 
@@ -12,7 +14,7 @@ use crate::prelude::*;
 
 /// Per-axis limits, in degrees: of rotation for pan and tilt, of field angle
 /// for zoom.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Params {
     /// Cruise speed. 0 is unlimited.
     pub v_max: f32,
@@ -20,16 +22,11 @@ pub struct Params {
     pub a_max: f32,
     /// Cap on how fast the acceleration itself may change. 0 is unlimited.
     pub j_max: f32,
-    /// Speed per degree of travel, for moves too short to ramp.
+    /// Cruise speed per degree of travel, for moves too short to be worth
+    /// winding all the way up.
     pub k_small: f32,
-    /// Travel below which the axis runs at a constant speed instead.
+    /// Travel below which `k_small` sets the cruise speed instead of `v_max`.
     pub small: f32,
-    /// Position window inside which the axis counts as arrived.
-    pub snap_pos: f32,
-    /// Speed below which it is allowed to count as arrived.
-    pub snap_vel: f32,
-    /// Fraction of the brake available while still travelling the wrong way.
-    pub reverse_brake: f32,
     /// Time constant in seconds of the firmware's input smoothing, easing the
     /// latched packets before the profiler chases them. 0 disables.
     pub smooth: f32,
@@ -43,9 +40,6 @@ impl Params {
             j_max: 50_000.0,
             k_small: 1.5,
             small: 80.0,
-            snap_pos: 0.5,
-            snap_vel: 3.0,
-            reverse_brake: 1.0,
             smooth: 0.0,
         }
     }
@@ -57,9 +51,6 @@ impl Params {
             j_max: 70_000.0,
             k_small: 5.0,
             small: 15.0,
-            snap_pos: 0.3,
-            snap_vel: 2.0,
-            reverse_brake: 1.0,
             smooth: 0.0,
         }
     }
@@ -75,9 +66,6 @@ impl Params {
             j_max: 0.0,
             k_small: 1.5,
             small: 0.0,
-            snap_pos: 0.2,
-            snap_vel: 1.0,
-            reverse_brake: 1.0,
             smooth: 0.0,
         }
     }
@@ -100,6 +88,167 @@ impl Params {
     }
 }
 
+/// Where an axis is, and how it is moving, at one instant.
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+struct State {
+    pos: f32,
+    vel: f32,
+    acc: f32,
+}
+
+impl State {
+    /// Where holding `jerk` for `secs` puts the axis. This is the whole of the
+    /// physics; everything else here only works out which jerk to hold, and for
+    /// how long.
+    fn after(self, jerk: f32, secs: f32) -> Self {
+        let (t, t2, t3) = (secs, secs * secs, secs * secs * secs);
+        Self {
+            pos: self.pos + self.vel * t + self.acc * t2 / 2.0 + jerk * t3 / 6.0,
+            vel: self.vel + self.acc * t + jerk * t2 / 2.0,
+            acc: self.acc + jerk * t,
+        }
+    }
+}
+
+/// One constant-jerk piece of a plan.
+#[derive(Clone, Copy, Default)]
+struct Leg {
+    jerk: f32,
+    secs: f32,
+}
+
+/// Where `legs` leave the axis.
+fn walk(from: State, legs: &[Leg]) -> State {
+    legs.iter().fold(from, |at, leg| at.after(leg.jerk, leg.secs))
+}
+
+/// The three legs that bring the axis to `vel` with its acceleration back at
+/// zero, as fast as the acceleration and jerk limits allow: slew the
+/// acceleration towards a peak, hold it there if the limit caps it, slew it
+/// back down.
+///
+/// The peak follows from the fact that the two slews alone change the velocity
+/// by `(2*peak^2 - acc^2) / 2*jerk`, which inverts directly. Which side of zero
+/// it lands is decided by comparing the change asked for against the change that
+/// merely unwinding the current acceleration would cause anyway.
+fn to_vel(from: State, vel: f32, p: Params) -> [Leg; 3] {
+    let (acc, dv) = (from.acc, vel - from.vel);
+    let unwound = acc * acc.abs() / (2.0 * p.j_max);
+    let dir = match dv >= unwound {
+        true => 1.0,
+        false => -1.0,
+    };
+    let peak = (dir * (acc * acc / 2.0 + dir * p.j_max * dv).max(0.0).sqrt()).clamp(-p.a_max, p.a_max);
+
+    let up = Leg { jerk: dir * p.j_max, secs: ((peak - acc) / (dir * p.j_max)).max(0.0) };
+    let held = from.after(up.jerk, up.secs).acc;
+    let down = Leg { jerk: -held.signum() * p.j_max, secs: held.abs() / p.j_max };
+    // Whatever velocity the two slews leave short is covered holding the peak.
+    let short = vel - walk(from, &[up, down]).vel;
+    let hold = match held.abs() > 1e-6 {
+        true => Leg { jerk: 0.0, secs: (short / held).max(0.0) },
+        false => Leg::default(),
+    };
+    [up, hold, down]
+}
+
+/// A whole move, as constant-jerk legs, plus where it is meant to end so the
+/// last step can land on that rather than on the rounding the legs picked up.
+struct Plan {
+    legs: [Leg; 7],
+    target: f32,
+}
+
+impl Plan {
+    /// The move from `from` to a standstill at `target`: wind up to some peak
+    /// speed, hold it, brake.
+    ///
+    /// Every leg is closed form once that peak speed is known, and the distance
+    /// the legs cover varies smoothly with it, so the peak that lands exactly on
+    /// the target is found by bisection, to the last bit of an `f32`.
+    fn to(from: State, target: f32, p: Params) -> Self {
+        let reach = |peak: f32| {
+            let at = walk(from, &to_vel(from, peak, p));
+            walk(at, &to_vel(at, 0.0, p)).pos - from.pos
+        };
+        let want = target - from.pos;
+        // Speed the axis keeps if it does nothing but unwind the acceleration it
+        // already has. Peaks past it mean winding up, peaks short of it mean
+        // shedding speed, and the two have to be searched apart: in between sit
+        // the peaks describing one brake taken in two bites, which covers a
+        // different distance than either whole and would hand the search a second
+        // answer to find. Where the two searches meet they can pick routes that
+        // differ by a fraction of a DMX step, which `the_branch_seam_is_finer_
+        // than_the_wire` holds to that.
+        let free =
+            (from.vel + from.acc * from.acc.abs() / (2.0 * p.j_max)).clamp(-p.v_max, p.v_max);
+        // Past the speed limit there is no faster peak to be had, so whatever
+        // distance is still owed gets covered coasting.
+        let (peak, coast) = match (want >= reach(free), reach(-p.v_max), reach(p.v_max)) {
+            (true, _, far) if want >= far => (p.v_max, (want - far) / p.v_max),
+            (false, near, _) if want <= near => (-p.v_max, (near - want) / p.v_max),
+            (true, ..) => (bisect(reach, want, free, p.v_max), 0.0),
+            (false, ..) => (bisect(reach, want, -p.v_max, free), 0.0),
+        };
+
+        let up = to_vel(from, peak, p);
+        let at = walk(from, &up);
+        let down = to_vel(at, 0.0, p);
+        let cruise = Leg { jerk: 0.0, secs: coast };
+        Self { legs: [up[0], up[1], up[2], cruise, down[0], down[1], down[2]], target }
+    }
+
+    /// Where the plan has the axis `secs` after it started.
+    fn at(&self, from: State, secs: f32) -> State {
+        let mut left = secs;
+        let mut at = from;
+        for leg in &self.legs {
+            let ran = leg.secs.min(left);
+            at = at.after(leg.jerk, ran);
+            left -= ran;
+            if left <= 0.0 {
+                return at;
+            }
+        }
+        // The plan is spent, so the move is over.
+        State { pos: self.target, vel: 0.0, acc: 0.0 }
+    }
+}
+
+/// The one peak speed in `lo..hi` whose `reach` is `want`. 32 halvings take any
+/// bracket a fixture could have below what an `f32` can tell apart.
+fn bisect(reach: impl Fn(f32) -> f32, want: f32, mut lo: f32, mut hi: f32) -> f32 {
+    for _ in 0..32 {
+        let mid = 0.5 * (lo + hi);
+        match reach(mid) < want {
+            true => lo = mid,
+            false => hi = mid,
+        }
+    }
+    0.5 * (lo + hi)
+}
+
+/// Cruise speed for one move. A head does not wind all the way up to answer a
+/// nudge: travel under `small` degrees runs at `k_small` per degree of it. Read
+/// once, when the move is planned, so the cap cannot shrink along with the
+/// closing gap and leave the axis crawling in forever.
+fn creep(gap: f32, p: Params) -> Params {
+    match p.small > 0.0 && gap.abs() < p.small {
+        true => Params { v_max: (p.k_small * gap.abs()).clamp(1e-3, p.v_max), ..p },
+        false => p,
+    }
+}
+
+/// The move in hand: what was asked for, the plan answering it, and how far in
+/// the axis is. Held rather than replanned every frame, so the axis rides one
+/// exact curve instead of stitching together a fresh curve each step.
+struct Move {
+    ask: (f32, Params),
+    plan: Plan,
+    from: State,
+    elapsed: f32,
+}
+
 /// Live state of one axis.
 #[derive(Default)]
 pub struct Axis {
@@ -111,14 +260,7 @@ pub struct Axis {
     pub acc: f32,
     /// Jerk the last step actually applied, for the plot.
     pub jerk: f32,
-    /// Target and speed of a short move, fixed when the move was given.
-    glide: Option<(f32, f32)>,
-    /// Brake latch. Hysteresis, so the decision cannot chatter frame to frame
-    /// and spray the acceleration with sign flips.
-    decel: bool,
-    /// A long move stays ramped until it lands, rather than dropping into the
-    /// short-move path as the gap closes.
-    ramping: bool,
+    going: Option<Move>,
     /// Cleared until the first target arrives, so a fixture starts where it is
     /// aimed instead of sweeping in from zero.
     homed: bool,
@@ -129,110 +271,26 @@ impl Axis {
     pub fn step(&mut self, target: f32, p: Params, dt: f32) -> f32 {
         if !self.homed || dt <= 0.0 {
             self.homed = true;
-            self.pos = target;
-            (self.vel, self.acc, self.jerk) = (0.0, 0.0, 0.0);
+            (self.pos, self.vel, self.acc, self.jerk) = (target, 0.0, 0.0, 0.0);
+            self.going = None;
             return self.pos;
         }
-        let p = p.resolve(target - self.pos, dt);
-
-        self.ramping |= (target - self.pos).abs() > p.small;
-        if self.ramping {
-            if self.ramp(target, p, dt) {
-                self.ramping = false;
-                self.glide = None;
-            }
-            return self.pos;
+        let ask = (target, p.resolve(target - self.pos, dt));
+        // Replanning mid-move would give back the same curve, so only a change
+        // of ask is worth the work.
+        if self.going.as_ref().is_none_or(|going| going.ask != ask) {
+            let from = State { pos: self.pos, vel: self.vel, acc: self.acc };
+            let p = creep(target - from.pos, ask.1);
+            self.going = Some(Move { ask, plan: Plan::to(from, target, p), from, elapsed: 0.0 });
         }
 
-        // Speed comes from the gap at the moment the move was given and is then
-        // held, so a nudge crawls the whole way instead of easing out.
-        let speed = match self.glide {
-            Some((was, speed)) if was == target => speed,
-            _ => {
-                let gap = target - self.pos;
-                let speed = gap.signum() * (p.k_small * gap.abs()).min(p.v_max);
-                self.glide = Some((target, speed));
-                speed
-            }
-        };
-        let next = self.pos + speed * dt;
-        let landed = (target - self.pos).abs() <= p.snap_pos
-            || (target - self.pos).signum() != (target - next).signum();
-        match landed {
-            true => self.land(target),
-            // A creep is quasi-static: constant speed, nothing to accelerate.
-            false => (self.pos, self.vel, self.acc, self.jerk) = (next, speed, 0.0, 0.0),
-        }
+        let going = self.going.as_mut().expect("just planned");
+        going.elapsed += dt;
+        let at = going.plan.at(going.from, going.elapsed);
+        // Averaged over the frame, which is all a frame-sampled plot can say.
+        self.jerk = (at.acc - self.acc) / dt;
+        (self.pos, self.vel, self.acc) = (at.pos, at.vel, at.acc);
         self.pos
-    }
-
-    /// Accelerate, cruise and brake. True once the axis lands.
-    fn ramp(&mut self, target: f32, p: Params, dt: f32) -> bool {
-        let gap = target - self.pos;
-        if gap.abs() <= p.snap_pos && self.vel.abs() <= p.snap_vel {
-            self.land(target);
-            return true;
-        }
-
-        let (dir, a_max) = (gap.signum(), p.a_max.max(1e-3));
-        // Brake once the distance left is all the distance needed to stop in,
-        // plus what slewing the acceleration over will cover. Latched with a
-        // hysteresis band: right on the boundary the raw comparison flips
-        // every frame.
-        let swing = (self.acc * dir + a_max) / p.j_max.max(1.0);
-        let stop = self.vel * self.vel / (2.0 * a_max) + self.vel.abs() * swing * 0.5;
-        if stop >= gap.abs() {
-            self.decel = true;
-        } else if stop < 0.7 * gap.abs() {
-            self.decel = false;
-        }
-
-        let mut wanted = match self.decel {
-            // Exactly the deceleration that lands on the target, so the brake
-            // is one smooth curve rather than a rail plus a per-frame speed
-            // clamp whose corrections read as noise.
-            true => -dir * (self.vel * self.vel / (2.0 * gap.abs().max(1e-4))).min(2.0 * a_max),
-            false => dir * a_max,
-        };
-        // Nothing left to gain once the cruise speed is reached.
-        if !self.decel && self.vel * dir >= p.v_max {
-            wanted = 0.0;
-        }
-        // Already travelling the wrong way, so the brake has inertia to fight.
-        if self.vel * dir < 0.0 {
-            let limit = p.reverse_brake.clamp(0.0, 1.0) * a_max;
-            wanted = wanted.clamp(-limit, limit);
-        }
-
-        // Acceleration is state, slewed toward the command at j_max. The plot
-        // reads these variables directly; nothing is differentiated back out
-        // of the velocity.
-        self.jerk = ((wanted - self.acc) / dt).clamp(-p.j_max, p.j_max);
-        self.acc += self.jerk * dt;
-
-        let unclamped = self.vel + self.acc * dt;
-        self.vel = unclamped.clamp(-p.v_max, p.v_max);
-        if self.vel != unclamped {
-            // The clamp did the work; keep the state telling the truth.
-            self.acc = (self.vel - unclamped + self.acc * dt) / dt;
-        }
-
-        let next = self.pos + self.vel * dt;
-        if (target - self.pos).signum() != (target - next).signum() {
-            self.land(target);
-            return true;
-        }
-        self.pos = next;
-        let landed = (target - self.pos).abs() <= p.snap_pos && self.vel.abs() <= p.snap_vel;
-        if landed {
-            self.land(target);
-        }
-        landed
-    }
-
-    fn land(&mut self, target: f32) {
-        (self.pos, self.vel, self.acc, self.jerk) = (target, 0.0, 0.0, 0.0);
-        self.decel = false;
     }
 }
 
@@ -371,6 +429,18 @@ impl Trace {
         self.samples.iter().map(|s| pick(s).abs()).fold(0.0, f32::max)
     }
 
+    /// Seconds of x axis to show, with the right edge at now.
+    fn span(&self, view: &View) -> f64 {
+        match view.scroll {
+            true => view.window,
+            // Fit the move, but never past what the buffer holds.
+            false => {
+                let held = self.samples.front().map_or(0.5, |s| self.clock - s.t).max(0.5);
+                held.min(view.window)
+            }
+        }
+    }
+
     fn line(&self, name: &str, budget: usize, pick: impl Fn(&Sample) -> f32) -> Line<'static> {
         let stride = self.samples.len().div_ceil(budget.max(1)).max(1);
         let at = |s: &Sample| [s.t - self.clock, pick(s) as f64];
@@ -407,14 +477,19 @@ pub struct View {
     pub vel: bool,
     pub accel: bool,
     pub jerk: bool,
-    /// Cap on the seconds on screen. The x axis fits the current move and the
-    /// right edge stays locked to now; this only zooms in closer.
+    /// Hold the x axis at `window` instead of sizing it to the move. A fixture
+    /// driven continuously never settles, so the move has no end and the fitted
+    /// axis stretches out to the whole buffer, shrinking the trace as it goes.
+    /// Scrolling keeps the scale put and lets the trace run off the left.
+    pub scroll: bool,
+    /// Seconds on screen. Fitted, this is only a cap and the axis may show less;
+    /// scrolling, it is the width.
     pub window: f64,
 }
 
 impl Default for View {
     fn default() -> Self {
-        Self { vel: true, accel: true, jerk: true, window: KEEP }
+        Self { vel: true, accel: true, jerk: true, scroll: false, window: KEEP }
     }
 }
 
@@ -438,6 +513,11 @@ pub fn plot(ui: &mut egui::Ui, view: &mut View, axes: &[(&str, &Trace, Params)])
         ui.checkbox(&mut view.vel, "Vel");
         ui.checkbox(&mut view.accel, "Accel");
         ui.checkbox(&mut view.jerk, "Jerk");
+        ui.separator();
+        ui.selectable_value(&mut view.scroll, false, "Settle")
+            .on_hover_text("Size the x axis to the move, and hold it once the axis lands");
+        ui.selectable_value(&mut view.scroll, true, "Scroll")
+            .on_hover_text("Hold the x axis at the window width, so continuous motion cannot stretch it");
         ui.separator();
         ui.spacing_mut().slider_width = 160.0;
         ui.add(
@@ -474,8 +554,7 @@ pub fn plot(ui: &mut egui::Ui, view: &mut View, axes: &[(&str, &Trace, Params)])
             .include_y(-1.05)
             .show(ui, |plot| {
                 // Fit the whole move, unless the slider zooms in closer.
-                let span = trace.samples.front().map_or(0.5, |s| trace.clock - s.t).max(0.5);
-                plot.set_plot_bounds_x(-span.min(view.window)..=0.0);
+                plot.set_plot_bounds_x(-trace.span(view)..=0.0);
                 for y in [0.0, 1.0, -1.0] {
                     plot.hline(guide(y));
                 }
@@ -532,9 +611,6 @@ pub fn tune(ui: &mut egui::Ui, name: &str, unit: &str, p: &mut Params) {
         format!("jerk ({unit}/s³)"),
         format!("creep ({unit}/s per {unit})"),
         format!("creep below ({unit})"),
-        format!("arrive ({unit})"),
-        format!("arrive ({unit}/s)"),
-        "reverse brake".into(),
         "smooth (s)".into(),
     ];
     let fields = [
@@ -544,9 +620,6 @@ pub fn tune(ui: &mut egui::Ui, name: &str, unit: &str, p: &mut Params) {
         (&mut p.j_max, 0.0..=500_000.0, 500.0),
         (&mut p.k_small, 0.01..=50.0, 0.1),
         (&mut p.small, 0.0..=180.0, 1.0),
-        (&mut p.snap_pos, 0.0..=5.0, 0.05),
-        (&mut p.snap_vel, 0.0..=20.0, 0.1),
-        (&mut p.reverse_brake, 0.0..=1.0, 0.05),
         (&mut p.smooth, 0.0..=0.5, 0.005),
     ];
     egui::Grid::new(format!("tune_{name}"))
@@ -561,4 +634,249 @@ pub fn tune(ui: &mut egui::Ui, name: &str, unit: &str, p: &mut Params) {
             }
             ui.end_row();
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pan's limits with the creep path off, which is how a fixture following a
+    /// path is driven.
+    fn limits() -> Params {
+        Params { small: 0.0, ..Params::pan() }
+    }
+
+    /// A snapshot per frame of an axis driven to `target` from rest.
+    fn sweep(p: Params, target: f32, dt: f32, secs: f32) -> Vec<Axis> {
+        let mut axis = Axis::default();
+        axis.step(0.0, p, dt);
+        (0..(secs / dt) as usize)
+            .map(|_| {
+                axis.step(target, p, dt);
+                Axis { pos: axis.pos, vel: axis.vel, acc: axis.acc, jerk: axis.jerk, ..default() }
+            })
+            .collect()
+    }
+
+    /// The target a chase follows, at frame `i`.
+    fn wave(amp: f32, hz: f32, i: usize) -> f32 {
+        amp * (std::f32::consts::TAU * hz * i as f32 / 44.0).sin()
+    }
+
+    /// A snapshot per frame of an axis chasing a sine, which is what a pattern
+    /// looks like: the target never stops moving and never repeats.
+    fn chase(p: Params, amp: f32, hz: f32, laps: f32) -> Vec<Axis> {
+        let mut axis = Axis::default();
+        (0..(44.0 * laps / hz) as usize)
+            .map(|i| {
+                axis.step(wave(amp, hz, i), p, 1.0 / 44.0);
+                Axis { pos: axis.pos, vel: axis.vel, acc: axis.acc, jerk: axis.jerk, ..default() }
+            })
+            .collect()
+    }
+
+    /// Starts that make a plan work for it: rolling, and braking hard the wrong
+    /// way.
+    fn awkward() -> [State; 5] {
+        [
+            State::default(),
+            State { pos: 0.0, vel: 120.0, acc: 0.0 },
+            State { pos: 0.0, vel: -40.0, acc: 600.0 },
+            State { pos: 0.0, vel: 90.0, acc: -700.0 },
+            State { pos: 0.0, vel: -250.0, acc: -800.0 },
+        ]
+    }
+
+    /// A packet that barely moves the target must barely move the axis. This is
+    /// the property the old profiler broke and the one that matters: its brake
+    /// latch and arrival window were both cliffs, so a hair of target either side
+    /// of one produced wholly different motion, which is what the judder was.
+    ///
+    /// It is not enough to know the search behaves, because two peak speeds can
+    /// describe the same curve carved up differently. So this looks at the motion
+    /// itself, from starts that put the plan through every branch it has.
+    #[test]
+    fn a_hair_more_target_is_a_hair_more_motion() {
+        let (p, dt) = (limits(), 1.0_f32 / 44.0);
+        // A hundredth of a degree is well under one step of a 16-bit channel
+        // across any pan or tilt range, so no real packet can ask for less.
+        let target = |i: i32| i as f32 / 100.0 - 60.0;
+        for from in awkward() {
+            let mut last = Plan::to(from, target(0), p).at(from, dt);
+            for i in 1..=12_000 {
+                let at = Plan::to(from, target(i), p).at(from, dt);
+                let (pos, acc) = ((at.pos - last.pos).abs(), (at.acc - last.acc).abs());
+                // Loose on purpose: a move short enough to finish inside one
+                // frame really is this sensitive, so the bound that means
+                // something is being an order under the half degree the old
+                // profiler used to snap across, not being tight in absolute
+                // terms. The exact seam is measured below.
+                assert!(
+                    pos <= 0.05 && acc <= p.j_max * dt,
+                    "{from:?} at target {}: position jumped {pos} and accel {acc}",
+                    target(i)
+                );
+                last = at;
+            }
+        }
+    }
+
+    /// Winding up and shedding speed are searched separately, so where the two
+    /// meet the plan can switch between routes that cover the same distance by
+    /// slightly different means. That seam has to stay finer than one step of a
+    /// 16-bit channel, or it would be a real jolt rather than a rounding.
+    #[test]
+    fn the_branch_seam_is_finer_than_the_wire() {
+        let (p, dt) = (limits(), 1.0_f32 / 44.0);
+        // Pan is the coarsest axis on the fixture: 540 degrees over 16 bits.
+        let step = 540.0 / 65535.0;
+        for from in awkward() {
+            let free =
+                (from.vel + from.acc * from.acc.abs() / (2.0 * p.j_max)).clamp(-p.v_max, p.v_max);
+            let at = walk(from, &to_vel(from, free, p));
+            let seam = walk(at, &to_vel(at, 0.0, p)).pos;
+
+            let side = |target: f32| Plan::to(from, target, p).at(from, dt);
+            let (before, after) = (side(seam - 1e-5), side(seam + 1e-5));
+            let jump = (after.pos - before.pos).abs();
+            assert!(jump < step, "{from:?}: the seam at {seam} jumps {jump}, over {step}");
+        }
+    }
+
+    /// And the plan the search builds has to actually arrive, from any start and
+    /// for any distance, including ones too short to stop in without overshooting
+    /// and coming back.
+    #[test]
+    fn every_plan_lands_on_its_target() {
+        let p = limits();
+        for from in awkward() {
+            for target in [-300.0, -1.0, 0.0, 0.05, 2.0, 45.0, 400.0] {
+                let plan = Plan::to(from, target, p);
+                let secs: f32 = plan.legs.iter().map(|leg| leg.secs).sum();
+                assert!(secs.is_finite() && secs < 60.0, "{from:?} to {target}: {secs}s");
+                let end = walk(from, &plan.legs);
+                assert!(
+                    (end.pos - target).abs() < 1e-2 && end.vel.abs() < 1e-2,
+                    "{from:?} to {target} ended {end:?}"
+                );
+            }
+        }
+    }
+
+    /// The point of planning rather than integrating: the frame rate picks the
+    /// sampling, not the path. A tenth of the step must land on the same curve.
+    #[test]
+    fn the_frame_rate_does_not_change_the_path() {
+        let (p, dt) = (limits(), 1.0_f32 / 44.0);
+        let coarse = sweep(p, 90.0, dt, 1.0);
+        let fine = sweep(p, 90.0, dt / 10.0, 1.0);
+        for (i, at) in coarse.iter().enumerate() {
+            // Same instant, ten times the samples to get there.
+            let Some(same) = fine.get((i + 1) * 10 - 1) else { break };
+            assert!((at.pos - same.pos).abs() < 1e-3, "frame {i}: {} against {}", at.pos, same.pos);
+        }
+    }
+
+    /// No limit may be broken, on a big move or while chasing a path. The old
+    /// profiler overshot its speed limit by half again while chasing.
+    #[test]
+    fn the_limits_hold() {
+        let p = limits();
+        for run in [sweep(p, 200.0, 1.0 / 44.0, 3.0), chase(p, 10.0, 0.5, 4.0)] {
+            for at in &run {
+                assert!(at.vel.abs() <= p.v_max * 1.001, "speed {}", at.vel);
+                assert!(at.acc.abs() <= p.a_max * 1.001, "accel {}", at.acc);
+                assert!(at.jerk.abs() <= p.j_max * 1.001, "jerk {}", at.jerk);
+            }
+        }
+    }
+
+    /// Chasing a path must be one unbroken glide. The old profiler stopped dead
+    /// on over half its frames, teleporting onto the target and starting again,
+    /// which is what made the simulated head judder.
+    #[test]
+    fn chasing_a_path_never_stalls_or_chatters() {
+        let run = chase(limits(), 10.0, 0.5, 4.0);
+        let stalls = run.iter().skip(2).filter(|at| at.vel == 0.0).count();
+        assert_eq!(stalls, 0, "the axis stopped dead on {stalls} of {} frames", run.len());
+        // One sign change per half lap is the turn; anything more is chatter.
+        let turns = run.windows(2).filter(|w| w[0].vel * w[1].vel < 0.0).count();
+        assert!(turns <= 8, "velocity changed sign {turns} times over four laps");
+    }
+
+    /// Tightening one axis must warp the path smoothly, which is the whole
+    /// reason for simulating: a slower axis lags further behind, so a circle
+    /// leans into an ellipse instead of falling apart.
+    #[test]
+    fn less_acceleration_lags_further_behind() {
+        let mut worst = 0.0_f32;
+        for a_max in [1600.0, 800.0, 400.0, 200.0, 100.0] {
+            let run = chase(Params { a_max, ..limits() }, 10.0, 0.5, 4.0);
+            // Compare the settled laps against the target that drove them.
+            let lag = run
+                .iter()
+                .enumerate()
+                .skip(run.len() / 2)
+                .map(|(i, at)| (wave(10.0, 0.5, i) - at.pos).abs())
+                .fold(0.0_f32, f32::max);
+            assert!(lag > worst, "a_max {a_max} lagged {lag:.3}, no worse than {worst:.3}");
+            worst = lag;
+        }
+    }
+
+    /// A move ends on the target exactly, with nothing left over, and stays put.
+    #[test]
+    fn a_move_lands_and_stays() {
+        for target in [90.0, -37.5, 0.25] {
+            let run = sweep(limits(), target, 1.0 / 44.0, 5.0);
+            let last = run.last().expect("frames");
+            assert_eq!((last.pos, last.vel, last.acc), (target, 0.0, 0.0));
+        }
+    }
+
+    /// Creep caps the speed of a nudge without changing how it is shaped, so the
+    /// acceleration limit still applies where it used to be bypassed entirely.
+    #[test]
+    fn creep_only_caps_the_speed() {
+        let p = Params { small: 80.0, k_small: 1.5, ..Params::pan() };
+        let peak = |p| sweep(p, 10.0, 1.0 / 44.0, 5.0).iter().map(|at| at.vel.abs()).fold(0.0, f32::max);
+        let crept = peak(p);
+        assert!((crept - 15.0).abs() < 0.5, "creep ran at {crept}, not 1.5 per degree of 10");
+        assert!(peak(Params { a_max: 20.0, ..p }) < crept, "the accel limit missed the creep path");
+    }
+
+    /// A trace fed `secs` of unbroken motion at 20 Hz, which is what a fixture
+    /// driven round a path looks like: it never settles.
+    fn moving(secs: f64) -> Trace {
+        let mut trace = Trace::default();
+        let axis = Axis { vel: 10.0, ..Axis::default() };
+        let mut t = 0.0;
+        while t < secs {
+            t += 0.05;
+            trace.push(t, 1.0, &axis);
+        }
+        trace
+    }
+
+    /// Fitted, the axis sizes itself to the move, so continuous motion stretches
+    /// it until the buffer runs out. Scrolling has to hold the width instead.
+    #[test]
+    fn scroll_holds_the_window_while_fit_grows() {
+        let fit = View { window: 20.0, scroll: false, ..default() };
+        let scroll = View { window: 20.0, scroll: true, ..default() };
+
+        let (short, long) = (moving(4.0), moving(12.0));
+        assert!(short.span(&fit) < 5.0, "fit showed {}", short.span(&fit));
+        assert!(long.span(&fit) > 11.0, "fit did not grow: {}", long.span(&fit));
+        assert_eq!(short.span(&scroll), 20.0);
+        assert_eq!(long.span(&scroll), 20.0);
+    }
+
+    /// Neither mode may show more than the buffer holds, or the trace would end
+    /// in dead space.
+    #[test]
+    fn fit_never_outruns_the_buffer() {
+        let view = View { window: KEEP, scroll: false, ..default() };
+        assert!(moving(2.0 * KEEP).span(&view) <= KEEP);
+    }
 }
