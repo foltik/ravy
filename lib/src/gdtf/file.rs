@@ -44,6 +44,8 @@ pub struct Slot {
     pub color: Option<Vec3>,
     /// Asset name of this slot's gobo image, if it has one.
     pub media: Option<String>,
+    /// Copies a prism slot splits the beam into. 0 for anything else.
+    pub facets: usize,
 }
 
 /// RDM identity, for matching a discovered responder to this fixture type.
@@ -215,6 +217,9 @@ impl Gdtf {
                         .filter(|m| !m.is_empty())
                         .map(|m| image_name(m))
                         .filter(|m| images.contains_key(m)),
+                    // Only how many there are: the facets also carry a rotation
+                    // each, and every one this rig ships is unusable.
+                    facets: s.children().filter(|f| f.has_tag_name("Facet")).count(),
                 })
                 .collect();
             wheels.insert(w.attribute("Name").unwrap_or_default().to_string(), slots);

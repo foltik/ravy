@@ -11,7 +11,7 @@ use std::path::Path;
 use bevy::asset::io::memory::Dir;
 use bevy::camera::primitives::{Aabb, MeshAabb};
 use bevy::gltf::{GltfMesh, GltfNode};
-use bevy::light::{NotShadowCaster, SpotLightTexture};
+use bevy::light::NotShadowCaster;
 use bevy::math::Affine3A;
 use bevy::world_serialization::WorldInstanceReady;
 
@@ -29,24 +29,11 @@ pub const TO_BEVY: Quat =
 /// Length of the visible beam cone, in meters.
 pub const BEAM_RANGE: f32 = 12.0;
 
-/// Range handed to the spot light, in meters. Bevy fades a light out over the
-/// last of its range with a non-physical window, so this sits far enough past
-/// the beam for the pool on the floor to stay inverse-square where it shows.
-const LIGHT_RANGE: f32 = 4.0 * BEAM_RANGE;
-
 /// Where the lens face's luminance starts compressing, in cd/m^2. Looking into
 /// one of these really is millions of nits, and handing that to bloom smears it
 /// over the whole frame. Compressing logarithmically above the knee keeps the
 /// glow growing with the dimmer all the way down instead of pinning at the top.
 const LENS_KNEE: f32 = 2.0e3;
-
-/// How small the light entity is made. Bevy hands a spot light's gobo to the
-/// clustered decal system, which besides projecting it also paints it over the
-/// base colour of anything inside a unit cube about the light: the fixture's own
-/// body, and the floor under it. Shrinking the entity shrinks that cube to
-/// nothing. The projection is a ratio of local coordinates so it comes out the
-/// same at any scale, and range, shadows and culling all ignore scale outright.
-const COOKIE_BOX: f32 = 1e-3;
 
 const TAU_4: f32 = std::f32::consts::FRAC_PI_2;
 const PI: f32 = std::f32::consts::PI;
@@ -339,6 +326,14 @@ pub const WHEEL_SPEED: f32 = 400.0;
 /// hydros by eye.
 const SPLIT: f32 = 105.0;
 
+/// How far a prism throws each copy off the beam axis, in degrees: the step
+/// from one copy to the next on a linear prism, and the radius of the ring on
+/// a circular one. The GDTF describes its facets with rotations that claim a
+/// 27 degree spread, and a linear prism whose facets are not in a line, so
+/// these are set by eye like [`SPLIT`].
+const PRISM_STEP: f32 = 2.2;
+const PRISM_RING: f32 = 2.6;
+
 /// Both slots when the gate is really straddling them, and the near one twice
 /// over when it is not. Only the mechanism that is mid-move differs across the
 /// split; everything else in the path applies to the whole beam.
@@ -394,6 +389,10 @@ pub struct Emitter {
     gobo_pos: Option<usize>,
     /// Gobo slot currently applied, to avoid restamping it every frame.
     gobo_slot: Option<usize>,
+    /// Prism selection channel.
+    prism: Option<usize>,
+    /// Prism indexing channel, which turns the copies about the beam.
+    prism_pos: Option<usize>,
     /// Luminous flux in lumens the GDTF claims, used where nothing measured
     /// this fixture.
     flux: f32,
@@ -426,12 +425,16 @@ pub struct Emitter {
     split: f32,
     /// Where the gobo has been turned to, in radians.
     gobo_spin: f32,
+    /// Copies the prism is making, negative for a linear one and 0 for none.
+    copies: f32,
+    /// xy: where the first copy sits across the aperture, in radii. zw: how to
+    /// get from one copy to the next.
+    facets: Vec4,
     /// How far through its cycle a shake is, in turns. Carried rather than
     /// taken from the clock, so changing the rate doesn't jump the gobo.
     shake: f32,
     /// The emitter's own rest rotation, which a shake swings the beam off.
     rest: Quat,
-    light: Option<Entity>,
     lens: Handle<StandardMaterial>,
     /// Radius of the emitting face, which is where the cone starts. None for a
     /// glow surface, which projects nothing.
@@ -591,7 +594,6 @@ pub(super) fn build(
             mats: &mut mats,
             body: body.0.clone(),
             share: 1.0 / cells.max(1) as f32,
-            casts_shadows: true,
             manual: standing.then(|| manual_tilt(global, ty)).flatten(),
         };
         for geometry in &ty.gdtf.geometries {
@@ -686,8 +688,6 @@ struct Builder<'a, 'w, 's> {
     body: Handle<StandardMaterial>,
     /// Fraction of the fixture's measured output one beam cell makes.
     share: f32,
-    /// Set until the fixture's first beam claims it.
-    casts_shadows: bool,
     manual: Option<Manual>,
 }
 
@@ -826,47 +826,14 @@ impl Builder<'_, '_, '_> {
             false => beam.angle,
         };
 
-        let (mut light, mut aperture) = (None, None);
-        if !beam.glow {
-            light = Some(
-                self.cmds
-                    .spawn((
-                        SpotLight {
-                            color: Color::BLACK,
-                            intensity: 0.0,
-                            inner_angle: beam.angle.to_radians() / 2.0,
-                            outer_angle: field.to_radians() / 2.0,
-                            range: LIGHT_RANGE,
-                            radius: 0.0,
-                            // Shadows what the fixture lands on. The beam volume
-                            // is occluded by ray query instead, but bevy's own
-                            // shading of surfaces still reads a map.
-                            //
-                            // One per fixture, not per cell: each is a whole
-                            // extra pass over the scene, and the cells of an
-                            // array sit within centimetres of each other, so
-                            // they all throw the same shadow.
-                            shadow_maps_enabled: std::mem::take(&mut self.casts_shadows),
-                            shadow_depth_bias: 0.02,
-                            shadow_normal_bias: 1.8,
-                            ..default()
-                        },
-                        // Bevy spots point along -z, GDTF beams along -y once converted.
-                        Transform::from_rotation(Quat::from_rotation_x(-TAU_4))
-                            .with_scale(Vec3::splat(COOKIE_BOX)),
-                    ))
-                    .id(),
-            );
-
-            // Prefer the lens size over BeamRadius, which is the far-field radius.
-            aperture = Some(
-                model
-                    .and_then(|m| gdtf.models.get(m))
-                    .map(|m| m.size.x / 2.0)
-                    .filter(|r| *r > 0.0)
-                    .unwrap_or(beam.radius),
-            );
-        }
+        // Prefer the lens size over BeamRadius, which is the far-field radius.
+        let aperture = (!beam.glow).then(|| {
+            model
+                .and_then(|m| gdtf.models.get(m))
+                .map(|m| m.size.x / 2.0)
+                .filter(|r| *r > 0.0)
+                .unwrap_or(beam.radius)
+        });
 
         let mixing = ["ColorAdd_R", "ColorAdd_G", "ColorAdd_B", "ColorAdd_W"];
         let rgbw = mixing.map(resolve);
@@ -883,6 +850,8 @@ impl Builder<'_, '_, '_> {
             gobo: resolve("Gobo1"),
             gobo_pos: resolve("Gobo1Pos"),
             gobo_slot: None,
+            prism: resolve("Prism1"),
+            prism_pos: resolve("Prism1Pos"),
             flux: beam.flux,
             angle: field,
             hotspot: match field > 0.0 {
@@ -903,16 +872,13 @@ impl Builder<'_, '_, '_> {
             sides: [Side::default(); 2],
             split: 1.0,
             gobo_spin: 0.0,
+            copies: 0.0,
+            facets: Vec4::ZERO,
             shake: 0.0,
             rest,
-            light,
             lens,
             aperture,
         });
-
-        for child in light.iter() {
-            self.cmds.entity(entity).add_child(*child);
-        }
     }
 }
 
@@ -960,15 +926,12 @@ fn filter(cie: Vec3) -> (Vec3, f32) {
 }
 
 pub(super) fn apply(
-    mut cmds: Commands,
     library: Res<GdtfLibrary>,
     time: Res<Time>,
     fixtures: Query<&GdtfFixture>,
     // A geometry is an axle or a beam, never both, but only the filter says so.
     mut motors: Query<(&mut Motor, &mut Transform), Without<Emitter>>,
     mut emitters: Query<(&mut Emitter, &mut Transform)>,
-    mut lights: Query<(&mut SpotLight, &mut Transform), (Without<Motor>, Without<Emitter>)>,
-    mut visible: Query<&mut Visibility>,
     mut mats: ResMut<Assets<StandardMaterial>>,
     gobos: Res<Volumetrics>,
 ) {
@@ -1123,23 +1086,8 @@ pub(super) fn apply(
         emitter.angles = Vec2::new(hot, field);
         emitter.tint = rgb;
 
-        // A dark emitter still costs a shadow map, so take it out of the frame
-        // entirely rather than scaling it to zero. Its cone drops out of the beam
-        // pass on its own, since that only carries what is lit.
-        let lit = match peak > 0.0 {
-            true => Visibility::Inherited,
-            false => Visibility::Hidden,
-        };
-        for entity in emitter.light.iter() {
-            if let Ok(mut visibility) = visible.get_mut(*entity) {
-                visibility.set_if_neq(lit);
-            }
-        }
-
-        // Gobo: shows in the beam volume only. A light cookie would also throw the
-        // pattern onto whatever the beam lands on, which is not wanted here. A
-        // turning wheel hands one over to the next the same way a colour wheel
-        // does, so the two sides can be showing different patterns.
+        // Gobo. A turning wheel hands one over to the next the same way a colour
+        // wheel does, so the two sides can be showing different patterns.
         let showing = emitter.gobo.and_then(|c| fixture.showing(ty, c));
         let mut near = None;
         if let Some((wheel, slots, edge)) = showing {
@@ -1159,18 +1107,9 @@ pub(super) fn apply(
         let gobo_slot = near.as_ref().map(|(slot, _)| *slot);
         if emitter.gobo_slot != gobo_slot {
             emitter.gobo_slot = gobo_slot;
-            let image = near.and_then(|(_, image)| image);
             // Tints the lens face, without the alpha that an albedo map carries.
-            mats.get_mut(&emitter.lens).unwrap().emissive_texture = image.clone();
-            // And throws the pattern onto whatever the beam lands on. Bevy
-            // projects it through the cone off the same tangent the volume
-            // uses, reading the red channel, which is the mask a gobo is.
-            if let Some(light) = emitter.light {
-                match image {
-                    Some(image) => cmds.entity(light).insert(SpotLightTexture { image }),
-                    None => cmds.entity(light).remove::<SpotLightTexture>(),
-                };
-            }
+            mats.get_mut(&emitter.lens).unwrap().emissive_texture =
+                near.and_then(|(_, image)| image);
         }
 
         {
@@ -1183,17 +1122,6 @@ pub(super) fn apply(
             };
             let face = LENS_KNEE * (1.0 + face / LENS_KNEE).ln();
             lens.emissive = LinearRgba::rgb(rgb.x * face, rgb.y * face, rgb.z * face);
-        }
-
-        if let Some(entity) = emitter.light {
-            let (mut light, _) = lights.get_mut(entity).unwrap();
-            light.color = Color::linear_rgb(rgb.x, rgb.y, rgb.z);
-            // Bevy spreads a spot light's lumens over the whole sphere and then
-            // masks the cone, so scale back up by that sphere to hand it the
-            // on-axis intensity the fixture really makes.
-            light.intensity = peak * 2.0 * std::f32::consts::TAU;
-            light.outer_angle = emitter.cone.outer().clamp(0.01, TAU_4 - 0.01);
-            light.inner_angle = emitter.cone.inner().min(light.outer_angle);
         }
 
         // A shaking wheel rattles its slot across the gate rather than turning
@@ -1212,28 +1140,55 @@ pub(super) fn apply(
             transform.rotation = rotation;
         }
 
-        // The indexing channel carries two functions: an absolute angle, and
-        // above half a continuous rate, which `drive` has already integrated.
-        emitter.gobo_spin = match emitter.gobo_pos {
-            Some(c) => {
-                let channel = &mode.channels[c];
-                match channel.function(fixture.values[c]).attribute.ends_with("PosRotate") {
-                    true => fixture.spin.get(c).copied().unwrap_or(0.0),
-                    false => channel.physical(fixture.values[c]),
+        emitter.gobo_spin = indexed(fixture, ty, emitter.gobo_pos).to_radians();
+
+        // Prism: every facet throws a whole copy of the beam a fixed angle off
+        // the axis. Across the aperture that deviation is the same offset at
+        // any depth, so it is carried in radii, which also means zooming wide
+        // draws the copies together the way the fixture does.
+        let selected = emitter.prism.and_then(|c| prism_slot(ty, c, fixture.values[c]));
+        let (mut copies, mut facets) = (0.0, Vec4::ZERO);
+        if let Some(slot) = selected {
+            let spin = indexed(fixture, ty, emitter.prism_pos).to_radians();
+            let n = slot.facets as f32;
+            let tan = emitter.cone.outer().tan().max(1e-4);
+            let radii = |degrees: f32| degrees.to_radians().tan() / tan;
+            // Nothing structural in the GDTF says which shape a prism throws.
+            match slot.name.to_ascii_lowercase().contains("linear") {
+                true => {
+                    let step = Vec2::from_angle(SPLIT.to_radians() + spin) * radii(PRISM_STEP);
+                    let first = -step * (n - 1.0) / 2.0;
+                    (copies, facets) = (-n, first.extend(step.x).extend(step.y));
+                }
+                false => {
+                    let first = Vec2::from_angle(spin) * radii(PRISM_RING);
+                    let turn = Vec2::from_angle(std::f32::consts::TAU / n);
+                    (copies, facets) = (n, first.extend(turn.x).extend(turn.y));
                 }
             }
-            None => 0.0,
         }
-        .to_radians();
-
-        // Bevy samples a cookie in the light's own frame, so the gobo is turned
-        // by turning the light. Its cone is round, so nothing else notices.
-        if let Some(entity) = emitter.light {
-            let (_, mut aim) = lights.get_mut(entity).unwrap();
-            aim.rotation =
-                Quat::from_rotation_x(-TAU_4) * Quat::from_rotation_z(emitter.gobo_spin);
-        }
+        emitter.copies = copies;
+        emitter.facets = facets;
     }
+}
+
+/// Where an indexing channel has turned to, in degrees. These carry an
+/// absolute angle low down and a continuous rate above it, which [`drive`] has
+/// already integrated.
+fn indexed(fixture: &GdtfFixture, ty: &GdtfType, channel: Option<usize>) -> f32 {
+    let Some(c) = channel else { return 0.0 };
+    let channel = &ty.mode().channels[c];
+    match channel.function(fixture.values[c]).attribute.ends_with("PosRotate") {
+        true => fixture.spin.get(c).copied().unwrap_or(0.0),
+        false => channel.physical(fixture.values[c]),
+    }
+}
+
+/// The prism a channel has selected, if it is on one. Open picks no slot, and
+/// neither does the macro half of the chart.
+fn prism_slot(ty: &GdtfType, channel: usize, value: u32) -> Option<&file::Slot> {
+    let (wheel, slot, _) = ty.mode().channels[channel].slot(value)?;
+    ty.gdtf.wheels.get(wheel)?.get(slot).filter(|slot| slot.facets > 1)
 }
 
 /// How far a wheel shake swings the beam, in degrees: across the tilt axle,
@@ -1298,12 +1253,34 @@ impl Default for Haze {
     }
 }
 
+/// How far a beam bleeds past the edge of its cone, standing in for the light
+/// haze scatters more than once.
+///
+/// The march follows only a photon's first bounce, which leaves a shaft with a
+/// harder edge than any real one in fog and no halo around it at all. Tracing
+/// the rest would cost far more than the whole pass does; this is the shape
+/// those bounces leave, without them.
+#[derive(Resource, Clone, Copy)]
+pub struct Glow {
+    /// How far past the rim it reaches, in cone radii.
+    pub width: f32,
+    /// What it is worth at the rim, as a fraction of the beam on axis.
+    pub level: f32,
+}
+
+impl Default for Glow {
+    fn default() -> Self {
+        Self { width: 0.3, level: 0.08 }
+    }
+}
+
 /// Gather the frame's lit cones and hand them to the beam pass. Beams are in
 /// world space, so this trails transform propagation.
 pub(super) fn project_beams(
     emitters: Query<(&Emitter, &GlobalTransform)>,
     camera: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     haze: Res<Haze>,
+    glow: Res<Glow>,
     mut volumetrics: ResMut<Volumetrics>,
 ) {
     let Ok((camera, view)) = camera.single() else { return };
@@ -1335,13 +1312,20 @@ pub(super) fn project_beams(
             axis: axis.extend(emitter.cone.cos_outer),
             right: right.extend(lens),
             up: up.extend(lens + BEAM_RANGE),
-            gobo: Vec4::new(emitter.gobo_spin.cos(), emitter.gobo_spin.sin(), near.layer, 0.0),
+            gobo: Vec4::new(
+                emitter.gobo_spin.cos(),
+                emitter.gobo_spin.sin(),
+                near.layer,
+                emitter.copies,
+            ),
             split: cut.extend(emitter.split).extend(far.layer),
+            prism: emitter.facets,
         });
     }
 
     volumetrics.list = list;
-    beam::publish(&mut volumetrics, clip, size, haze.0);
+    let air = Vec4::new(haze.0, glow.width, glow.level, 0.0);
+    beam::publish(&mut volumetrics, clip, size, air);
 }
 
 /// Area of an emitting face: a lens is a disc, a glow panel is flat.

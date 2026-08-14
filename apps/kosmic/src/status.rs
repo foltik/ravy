@@ -20,6 +20,7 @@ pub fn draw(
     mut trim: ResMut<Trim>,
     mut room: ResMut<Room>,
     mut haze: ResMut<Haze>,
+    mut glow: ResMut<Glow>,
 ) -> Result {
     let ctx = ctxs.ctx_mut()?;
     let look = s.look();
@@ -96,16 +97,19 @@ pub fn draw(
                 }
             }
         });
+        // How soft the beams read, which the march cannot get to on its own.
+        knob(ui, "glow width", &mut glow.width, 0.0..=1.5);
+        knob(ui, "glow level", &mut glow.level, 0.0..=0.5);
 
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Save").clicked()
-                    && let Err(e) = trim.save(&room, &haze)
+                    && let Err(e) = trim.save(&room, &haze, &glow)
                 {
                     warn!("failed to save rig: {e}");
                 }
                 if ui.button("Reload").clicked() {
-                    trim.reload(&mut room, &mut haze);
+                    trim.reload(&mut room, &mut haze, &mut glow);
                 }
             });
         });

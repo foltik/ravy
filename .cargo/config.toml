@@ -1,6 +1,11 @@
 [unstable]
 codegen-backend = true
 
+# WARNING: impure. System libs (libudev, alsa) resolve via the host's
+# pkg-config dirs, since ~/.jack/prefix/bin/pkg-config shadows the system one.
+[env]
+PKG_CONFIG_PATH = "/usr/lib/pkgconfig:/usr/share/pkgconfig"
+
 
 [target.'cfg(target_os = "linux")']
 linker = "clang"

@@ -31,7 +31,12 @@ impl Default for Trim {
 
 impl Trim {
     /// Every saved field, by the name it is written under.
-    fn fields<'a>(&'a mut self, room: &'a mut Room, haze: &'a mut Haze) -> [(&'static str, &'a mut f32); 7] {
+    fn fields<'a>(
+        &'a mut self,
+        room: &'a mut Room,
+        haze: &'a mut Haze,
+        glow: &'a mut Glow,
+    ) -> [(&'static str, &'a mut f32); 9] {
         [
             ("global", &mut self.global),
             ("outcast_ring", &mut self.ring),
@@ -40,17 +45,20 @@ impl Trim {
             ("colorado", &mut self.colorado),
             ("room", &mut room.0),
             ("haze", &mut haze.0),
+            ("glow_width", &mut glow.width),
+            ("glow_level", &mut glow.level),
         ]
     }
 
     /// Drop back to what is on disk, leaving whatever it doesn't name at the
     /// default.
-    pub fn reload(&mut self, room: &mut Room, haze: &mut Haze) {
-        (*self, *room, *haze) = (Self::default(), Room::default(), Haze::default());
+    pub fn reload(&mut self, room: &mut Room, haze: &mut Haze, glow: &mut Glow) {
+        (*self, *room, *haze, *glow) =
+            (Self::default(), Room::default(), Haze::default(), Glow::default());
         let Ok(text) = std::fs::read_to_string(RIG_FILE) else {
             return;
         };
-        let mut fields = self.fields(room, haze);
+        let mut fields = self.fields(room, haze, glow);
         for line in text.lines() {
             let Some((name, value)) = line.split_once(char::is_whitespace) else { continue };
             let Some(value) = value.trim().parse::<f32>().ok() else {
@@ -64,15 +72,23 @@ impl Trim {
         }
     }
 
-    pub fn save(&self, room: &Room, haze: &Haze) -> std::io::Result<()> {
-        let (mut trim, mut room, mut haze) = (*self, Room(room.0), Haze(haze.0));
-        let body: String =
-            trim.fields(&mut room, &mut haze).iter().map(|(n, v)| format!("{n} {v}\n")).collect();
+    pub fn save(&self, room: &Room, haze: &Haze, glow: &Glow) -> std::io::Result<()> {
+        let (mut trim, mut room, mut haze, mut glow) = (*self, Room(room.0), Haze(haze.0), *glow);
+        let body: String = trim
+            .fields(&mut room, &mut haze, &mut glow)
+            .iter()
+            .map(|(n, v)| format!("{n} {v}\n"))
+            .collect();
         std::fs::write(RIG_FILE, body)
     }
 }
 
 /// Pull the saved settings in at startup, so the rig comes up how it was left.
-pub fn load(mut trim: ResMut<Trim>, mut room: ResMut<Room>, mut haze: ResMut<Haze>) {
-    trim.reload(&mut room, &mut haze);
+pub fn load(
+    mut trim: ResMut<Trim>,
+    mut room: ResMut<Room>,
+    mut haze: ResMut<Haze>,
+    mut glow: ResMut<Glow>,
+) {
+    trim.reload(&mut room, &mut haze, &mut glow);
 }

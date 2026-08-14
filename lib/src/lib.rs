@@ -37,7 +37,7 @@ pub mod prelude {
     pub use crate::dmx::{DmxDevice, DmxUniverse, RdmDevice};
     pub use crate::e131::E131;
     pub use crate::enttec::Enttec;
-    pub use crate::gdtf::{GdtfFixture, GdtfLibrary, Haze, Universe};
+    pub use crate::gdtf::{GdtfFixture, GdtfLibrary, Glow, Haze, Universe};
     pub use crate::gltf::*;
     pub use crate::math::{self, Axis, Ease, *};
     pub use crate::midi::{Midi, MidiDevice};

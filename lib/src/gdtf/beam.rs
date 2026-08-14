@@ -11,6 +11,7 @@
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::core_pipeline::FullscreenShader;
+use bevy::core_pipeline::prepass::{DeferredPrepass, DepthPrepass, ViewPrepassTextures};
 use bevy::core_pipeline::schedule::{Core3d, Core3dSystems};
 use bevy::image::{ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::light::NotShadowCaster;
@@ -77,7 +78,7 @@ impl Plugin for BeamPlugin {
             bins: Vec::new(),
         });
 
-        app.init_resource::<Proxies>().add_systems(PostUpdate, (traceable, readable_depth));
+        app.init_resource::<Proxies>().add_systems(PostUpdate, (traceable, prepare_views));
 
         let Some(render) = app.get_sub_app_mut(RenderApp) else { return };
         render
@@ -120,12 +121,17 @@ pub struct Beam {
     /// xyz: the gobo's v axis. w: axial distance from the apex to the far end.
     pub up: Vec4,
     /// xy: cos/sin of the gobo's rotation. z: layer in the gobo array, 0 for an
-    /// open gate.
+    /// open gate. w: copies the prism makes, negative for a linear prism and 0
+    /// or 1 for none.
     pub gobo: Vec4,
     /// xy: unit axis the wheel's slots travel along, in the gobo's frame.
     /// z: the edge between them across the aperture in radii, +1 for all of the
     /// near side. w: the far side's layer in the gobo array.
     pub split: Vec4,
+    /// xy: where the first prism copy sits across the aperture, in radii.
+    /// zw: how to get from one copy to the next, added along for a linear prism
+    /// and turned about the centre for a circular one.
+    pub prism: Vec4,
 }
 
 /// Mirrors `Volume` in beam.wgsl.
@@ -133,7 +139,9 @@ pub struct Beam {
 pub struct Volume {
     /// xy: tiles across and down. z: pixels on a tile's side. w: beams a tile holds.
     pub grid: UVec4,
-    /// x: scattering coefficient of the air, per metre.
+    /// x: scattering coefficient of the air, per metre. y: how far a beam
+    /// bleeds past its cone, in cone radii. z: what that bleed is worth at the
+    /// rim.
     pub air: Vec4,
 }
 
@@ -159,19 +167,25 @@ impl Volumetrics {
 /// Hand the frame's beams to the pass, binned into the screen tiles each one can
 /// cover. A cone that straddles the camera plane has no screen bounds, so it goes
 /// into every tile.
-pub(super) fn publish(volumetrics: &mut Volumetrics, clip: Mat4, size: UVec2, air: f32) {
+pub(super) fn publish(volumetrics: &mut Volumetrics, clip: Mat4, size: UVec2, air: Vec4) {
     let across = size.x.div_ceil(TILE).max(1);
     let down = size.y.div_ceil(TILE).max(1);
     let stride = (TILE_CAPACITY + 1) as usize;
 
     volumetrics.volume.grid = UVec4::new(across, down, TILE, TILE_CAPACITY);
-    volumetrics.volume.air = Vec4::new(air, 0.0, 0.0, 0.0);
+    volumetrics.volume.air = air;
+
+    // Matches `bleed` in beam.wgsl: how far past its rim a beam still reaches.
+    let bleed = match air.z > 0.0 {
+        true => 4.0 * air.y,
+        false => 0.0,
+    };
 
     let mut bins = std::mem::take(&mut volumetrics.bins);
     bins.clear();
     bins.resize(across as usize * down as usize * stride, 0);
     for (index, beam) in volumetrics.list.iter().enumerate() {
-        let (lo, hi) = match screen_bounds(beam, clip, size.as_vec2()) {
+        let (lo, hi) = match screen_bounds(beam, clip, size.as_vec2(), bleed) {
             Bounds::Screen(lo, hi) => (lo, hi),
             Bounds::Everywhere => (Vec2::ZERO, size.as_vec2()),
             Bounds::Behind => continue,
@@ -205,11 +219,14 @@ enum Bounds {
 
 /// Pixel bounds of a cone. It lies inside the hull of its two end discs, so the
 /// corners of the projected rims bound it.
-fn screen_bounds(beam: &Beam, clip: Mat4, size: Vec2) -> Bounds {
+fn screen_bounds(beam: &Beam, clip: Mat4, size: Vec2, bleed: f32) -> Bounds {
     let (apex, axis) = (beam.apex.truncate(), beam.axis.truncate());
     let (right, up) = (beam.right.truncate(), beam.up.truncate());
     let cos = beam.axis.w.max(1e-4);
-    let tan = (1.0 - cos * cos).max(0.0).sqrt() / cos;
+    // Wide enough to hold every prism copy, which sit outside the cone the
+    // fixture alone makes, and the bleed that hangs past those.
+    let spread = Vec2::new(beam.prism.x, beam.prism.y).length();
+    let tan = (1.0 - cos * cos).max(0.0).sqrt() / cos * (1.0 + spread + bleed);
 
     let (mut lo, mut hi) = (Vec2::MAX, Vec2::MIN);
     let mut behind = 0;
@@ -419,16 +436,32 @@ fn linear_to_srgb(v: f32) -> f32 {
     }
 }
 
-/// The frame's beams, copied into the render world.
+/// What every 3d view needs for the beams to be drawn at all, set here rather
+/// than asked of each app: the fixtures are shaded by this pass alone, so a
+/// view missing any of it would be lit by nothing.
+///
 /// The march reads the depth the main pass left, to stop each shaft at whatever
 /// it lands on. Bevy asks for a depth texture it can only render to, so this
-/// widens it rather than paying for a whole prepass to get a second copy.
-fn readable_depth(mut cameras: Query<&mut Camera3d>) {
-    for mut camera in &mut cameras {
+/// widens it rather than paying for a whole prepass to get a second copy. The
+/// gbuffer is where the surfaces the beams land on get their albedo and normal,
+/// and bevy only fills it at one sample, so multisampling has to go.
+fn prepare_views(
+    mut cmds: Commands,
+    mut cameras: Query<(Entity, &mut Camera3d, &mut Msaa, Has<DeferredPrepass>)>,
+) {
+    for (entity, mut camera, mut msaa, deferred) in &mut cameras {
         let usage = TextureUsages::from(camera.depth_texture_usages);
-        // Only when it is missing, or every camera counts as changed every frame.
+        // Each of these only where it is not already so: a view written to every
+        // frame counts as changed every frame, and its pipelines specialize
+        // again for it.
         if !usage.contains(TextureUsages::TEXTURE_BINDING) {
             camera.depth_texture_usages = (usage | TextureUsages::TEXTURE_BINDING).into();
+        }
+        // Bevy makes Msaa a required component of every camera, so this is
+        // always overriding a default rather than filling a gap.
+        msaa.set_if_neq(Msaa::Off);
+        if !deferred {
+            cmds.entity(entity).insert((DepthPrepass, DeferredPrepass));
         }
     }
 }
@@ -548,6 +581,7 @@ fn march_layout(msaa: bool) -> BindGroupLayoutDescriptor {
                     false => texture_depth_2d(),
                 },
                 texture_storage_2d(BEAM_FORMAT, StorageTextureAccess::WriteOnly),
+                texture_2d(TextureSampleType::Uint),
             ),
         ),
     )
@@ -562,6 +596,7 @@ fn composite_layout() -> BindGroupLayoutDescriptor {
             (
                 texture_2d(TextureSampleType::Float { filterable: true }),
                 sampler(SamplerBindingType::Filtering),
+                texture_2d(TextureSampleType::Float { filterable: true }),
             ),
         ),
     )
@@ -628,27 +663,45 @@ struct CompositePipeline {
 #[derive(Component)]
 struct BeamPipelineIds {
     march: CachedComputePipelineId,
+    surfaces: CachedComputePipelineId,
     composite: CachedRenderPipelineId,
 }
 
-/// Where the march writes, before it is added into the frame.
+/// Where the two compute passes write, before they are added into the frame.
+/// The haze is marched coarse and filtered back up; what the beams land on is
+/// shaded at full resolution, since a gobo thrown on a wall has edges.
 #[derive(Component)]
-struct BeamTexture(CachedTexture);
+struct BeamTexture {
+    beams: CachedTexture,
+    surfaces: CachedTexture,
+}
+
+/// One of the two jobs the beam shader does, for a view.
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+struct MarchKey {
+    /// Whether the depth buffer this view reads is multisampled.
+    msaa: bool,
+    /// Lighting the surfaces the frame drew, rather than the haze between them.
+    surfaces: bool,
+}
 
 impl SpecializedComputePipeline for BeamPipeline {
-    /// Whether the depth buffer this view marches against is multisampled.
-    type Key = bool;
+    type Key = MarchKey;
 
-    fn specialize(&self, msaa: bool) -> ComputePipelineDescriptor {
+    fn specialize(&self, key: MarchKey) -> ComputePipelineDescriptor {
+        let (label, entry) = match key.surfaces {
+            true => ("beam_surfaces", "light_surfaces"),
+            false => ("beam_march", "march_beams"),
+        };
         ComputePipelineDescriptor {
-            label: Some("beam_march".into()),
-            layout: vec![self.scene.clone().unwrap_or_default(), march_layout(msaa)],
+            label: Some(label.into()),
+            layout: vec![self.scene.clone().unwrap_or_default(), march_layout(key.msaa)],
             shader: self.shader.clone(),
-            shader_defs: match msaa {
+            shader_defs: match key.msaa {
                 true => vec!["MULTISAMPLED".into()],
                 false => vec![],
             },
-            entry_point: Some("march_beams".into()),
+            entry_point: Some(entry.into()),
             ..default()
         }
     }
@@ -738,24 +791,29 @@ fn prepare_textures(
 ) {
     for (entity, camera) in &views {
         let Some(size) = camera.physical_viewport_size else { continue };
-        let texture = textures.get(
-            &device,
-            TextureDescriptor {
-                label: Some("beams"),
-                size: Extent3d {
-                    width: size.x.div_ceil(BEAM_SCALE).max(1),
-                    height: size.y.div_ceil(BEAM_SCALE).max(1),
-                    depth_or_array_layers: 1,
+        let mut gather = |label, scale: u32| {
+            textures.get(
+                &device,
+                TextureDescriptor {
+                    label: Some(label),
+                    size: Extent3d {
+                        width: size.x.div_ceil(scale).max(1),
+                        height: size.y.div_ceil(scale).max(1),
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: TextureDimension::D2,
+                    format: BEAM_FORMAT,
+                    usage: TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
                 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TextureDimension::D2,
-                format: BEAM_FORMAT,
-                usage: TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            },
-        );
-        cmds.entity(entity).insert(BeamTexture(texture));
+            )
+        };
+        cmds.entity(entity).insert(BeamTexture {
+            beams: gather("beams", BEAM_SCALE),
+            surfaces: gather("beam_surfaces", 1),
+        });
     }
 }
 
@@ -770,8 +828,10 @@ fn prepare_pipeline(
 ) {
     for (entity, target, msaa) in &views {
         let key = BeamKey { format: target.main_texture_format(), samples: msaa.samples() };
+        let job = |surfaces| MarchKey { msaa: msaa.samples() > 1, surfaces };
         cmds.entity(entity).insert(BeamPipelineIds {
-            march: marches.specialize(&cache, &march, msaa.samples() > 1),
+            march: marches.specialize(&cache, &march, job(false)),
+            surfaces: marches.specialize(&cache, &march, job(true)),
             composite: composites.specialize(&cache, &composite, key),
         });
     }
@@ -788,6 +848,7 @@ fn beam_pass(
         &BeamTexture,
         &BeamPipelineIds,
         &Msaa,
+        &ViewPrepassTextures,
     )>,
     cache: Res<PipelineCache>,
     composite: Res<CompositePipeline>,
@@ -798,13 +859,20 @@ fn beam_pass(
     scene: Option<Res<RaytracingSceneBindings>>,
     mut ctx: RenderContext,
 ) {
-    let (target, offset, depth, beams_texture, pipelines, msaa) = view.into_inner();
-    if frame.beams.is_empty() || frame.volume.air.x <= 0.0 {
+    let (target, offset, depth, textures, pipelines, msaa, prepass) = view.into_inner();
+    if frame.beams.is_empty() {
         return;
     }
 
+    // Where the surfaces get their albedo and normal. Without it the fixtures
+    // light nothing, since they no longer go through bevy's own lights.
+    let Some(gbuffer) = prepass.deferred.as_ref().map(|t| &t.texture.default_view) else {
+        return;
+    };
+
     let (
         Some(march),
+        Some(surfaces),
         Some(composite_pipeline),
         Some(view_binding),
         Some(gobos),
@@ -813,6 +881,7 @@ fn beam_pass(
         Some(tiles),
     ) = (
         cache.get_compute_pipeline(pipelines.march),
+        cache.get_compute_pipeline(pipelines.surfaces),
         cache.get_render_pipeline(pipelines.composite),
         views.uniforms.binding(),
         images.get(&frame.gobos),
@@ -831,36 +900,55 @@ fn beam_pass(
     };
 
     let device = ctx.render_device().clone();
-    let march_bind_group = device.create_bind_group(
-        "beam_march_bind_group",
-        &cache.get_bind_group_layout(&march_layout(msaa.samples() > 1)),
-        &BindGroupEntries::sequential((
-            view_binding,
-            volume,
-            beams,
-            tiles,
-            &gobos.texture_view,
-            &gobos.sampler,
-            depth.view(),
-            &beams_texture.0.default_view,
-        )),
-    );
+    let layout = cache.get_bind_group_layout(&march_layout(msaa.samples() > 1));
+    // The two passes differ only in where they write, so they differ only in
+    // the one binding.
+    let bind = |label, output: &CachedTexture| {
+        device.create_bind_group(
+            label,
+            &layout,
+            &BindGroupEntries::sequential((
+                view_binding.clone(),
+                volume.clone(),
+                beams.clone(),
+                tiles.clone(),
+                &gobos.texture_view,
+                &gobos.sampler,
+                depth.view(),
+                &output.default_view,
+                gbuffer,
+            )),
+        )
+    };
+    let march_bind_group = bind("beam_march_bind_group", &textures.beams);
+    let surface_bind_group = bind("beam_surfaces_bind_group", &textures.surfaces);
     let composite_bind_group = device.create_bind_group(
         "beam_composite_bind_group",
         &cache.get_bind_group_layout(&composite_layout()),
-        &BindGroupEntries::sequential((&beams_texture.0.default_view, &composite.sampler)),
+        &BindGroupEntries::sequential((
+            &textures.beams.default_view,
+            &composite.sampler,
+            &textures.surfaces.default_view,
+        )),
     );
 
-    let size = beams_texture.0.texture.size();
     let encoder = ctx.command_encoder();
     {
         let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
             label: Some("beam_march"),
             timestamp_writes: None,
         });
-        pass.set_pipeline(march);
         pass.set_bind_group(0, scene, &[]);
+        // Both textures are pooled between frames, so every pixel of each has
+        // to be written or it shows whatever last used it.
+        let size = textures.beams.texture.size();
+        pass.set_pipeline(march);
         pass.set_bind_group(1, &march_bind_group, &[offset.offset]);
+        pass.dispatch_workgroups(size.width.div_ceil(WORKGROUP), size.height.div_ceil(WORKGROUP), 1);
+
+        let size = textures.surfaces.texture.size();
+        pass.set_pipeline(surfaces);
+        pass.set_bind_group(1, &surface_bind_group, &[offset.offset]);
         pass.dispatch_workgroups(size.width.div_ceil(WORKGROUP), size.height.div_ceil(WORKGROUP), 1);
     }
     {

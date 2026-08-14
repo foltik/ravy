@@ -14,8 +14,8 @@ mod photometry;
 pub use beam::Volumetrics;
 pub use file::{Channel, Gdtf, Geometry, Kind, Mode, Model, Slot};
 pub use fixture::{
-    Axle, Emitter, GdtfDevice, GdtfFixture, GdtfLibrary, GdtfType, Haze, Motor, Standing, Universe,
-    WHEEL_SPEED, corners, declared_travel,
+    Axle, Emitter, GdtfDevice, GdtfFixture, GdtfLibrary, GdtfType, Glow, Haze, Motor, Standing,
+    Universe, WHEEL_SPEED, corners, declared_travel,
 };
 pub use photometry::{Photometry, Profile, luminance, xy_to_rgb};
 
@@ -38,6 +38,7 @@ impl Plugin for GdtfPlugin {
             .add_plugins(beam::BeamPlugin)
             .insert_resource(GdtfLibrary::new(self.models.clone()))
             .init_resource::<Haze>()
+            .init_resource::<Glow>()
             .add_systems(Startup, fixture::setup)
             .add_systems(
                 Update,
