@@ -9,7 +9,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use bevy::asset::io::memory::Dir;
+use bevy::camera::RenderTarget;
 use bevy::camera::primitives::{Aabb, MeshAabb};
+use bevy::window::WindowRef;
 use bevy::gltf::{GltfMesh, GltfNode};
 use bevy::light::NotShadowCaster;
 use bevy::math::Affine3A;
@@ -439,6 +441,61 @@ pub struct Emitter {
     /// Radius of the emitting face, which is where the cone starts. None for a
     /// glow surface, which projects nothing.
     aperture: Option<f32>,
+}
+
+impl Emitter {
+    /// A hand-measured emitter with no GDTF behind it: a fixed cone throwing
+    /// `flux` lumens over the given full beam/field angles from a lens of
+    /// `aperture` radius, driven by [`Emitter::set`] instead of the universe.
+    pub fn manual(beam: f32, field: f32, flux: f32, aperture: f32) -> Self {
+        Self {
+            fixture: Entity::PLACEHOLDER,
+            dimmer: None,
+            shutter: None,
+            zoom: None,
+            rgbw: [None; 4],
+            leds: [Led { rgb: Vec3::ONE, weight: 1.0 }; 4],
+            additive: false,
+            source: Vec3::ONE,
+            wheels: Vec::new(),
+            gobo: None,
+            gobo_pos: None,
+            gobo_slot: None,
+            prism: None,
+            prism_pos: None,
+            flux,
+            angle: field,
+            hotspot: (beam / field.max(1e-3)).clamp(0.0, 1.0),
+            glow: false,
+            segment: None,
+            share: 1.0,
+            area: PI * aperture * aperture,
+            cone: Profile::new(beam, field),
+            peak: 0.0,
+            angles: Vec2::new(beam, field),
+            tint: Vec3::ZERO,
+            sides: [Side::default(); 2],
+            split: 1.0,
+            gobo_spin: 0.0,
+            copies: 0.0,
+            facets: Vec4::ZERO,
+            shake: 0.0,
+            rest: Quat::IDENTITY,
+            lens: Handle::default(),
+            aperture: Some(aperture),
+        }
+    }
+
+    /// Drive a manual emitter: linear sRGB as the show mixed it, level and all.
+    pub fn set(&mut self, rgb: Vec3) {
+        let lum = photometry::luminance(rgb);
+        self.tint = match lum > 1e-6 {
+            true => rgb / lum,
+            false => Vec3::ONE,
+        };
+        self.peak = lum * self.flux / self.cone.solid_angle();
+        self.sides = [Side { tint: self.tint, peak: self.peak, layer: 0.0 }; 2];
+    }
 }
 
 /// One side of what the gate is showing.
@@ -1278,12 +1335,19 @@ impl Default for Glow {
 /// world space, so this trails transform propagation.
 pub(super) fn project_beams(
     emitters: Query<(&Emitter, &GlobalTransform)>,
-    camera: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    cameras: Query<(&Camera, &GlobalTransform, Option<&RenderTarget>), With<Camera3d>>,
     haze: Res<Haze>,
     glow: Res<Glow>,
     mut volumetrics: ResMut<Volumetrics>,
 ) {
-    let Ok((camera, view)) = camera.single() else { return };
+    // The venue view is whichever camera draws the primary window; offscreen
+    // passes and popout windows carry their own RenderTarget.
+    let Some((camera, view)) = cameras.iter().find_map(|(camera, view, target)| {
+        matches!(target, None | Some(RenderTarget::Window(WindowRef::Primary)))
+            .then_some((camera, view))
+    }) else {
+        return;
+    };
     let Some(size) = camera.physical_viewport_size() else { return };
     let clip = camera.clip_from_view() * view.affine().inverse();
     let cut = Vec2::from_angle(SPLIT.to_radians());

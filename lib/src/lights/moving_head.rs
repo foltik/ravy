@@ -1,4 +1,5 @@
 use bevy::gltf::GltfMaterialName;
+use bevy::light::NotShadowCaster;
 
 use crate::prelude::*;
 use crate::sim::motor::{Motor, MotorDynamics};
@@ -80,6 +81,16 @@ pub fn setup_post(
         let mut light = None;
 
         for child in children.iter_descendants(entity) {
+            // The cone and lens lie on the beam path and would self-shadow it
+            // in the beam pass's acceleration structure; the housing stays a
+            // solid that blocks beams like anything else in the venue.
+            if gltf_materials
+                .get(child)
+                .is_ok_and(|name| name.0.starts_with("Beam") || name.0.starts_with("Lens"))
+            {
+                cmds.entity(child).insert(NotShadowCaster);
+            }
+
             if names.get(child).is_ok_and(|name| name.starts_with("Head")) {
                 head = Some(child);
 

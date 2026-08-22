@@ -27,7 +27,9 @@ pub mod prelude {
     pub use anyhow::Context;
     pub use bevy::color::palettes::css::*;
     pub use bevy::prelude::*;
-    pub use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
+    pub use bevy_egui::{
+        EguiContexts, EguiGlobalSettings, EguiPrimaryContextPass, PrimaryEguiContext, egui,
+    };
     pub use bevy_trait_query::{One, RegisterExt};
     pub use dyn_clone::{DynClone, clone_trait_object};
 

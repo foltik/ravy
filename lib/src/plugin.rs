@@ -47,7 +47,7 @@ impl Plugin for RavyPlugin {
 pub fn hotkeys(
     keys: Res<ButtonInput<KeyCode>>,
     mut ui: ResMut<Ui>,
-    mut window: Single<&mut Window>,
+    mut window: Single<&mut Window, With<bevy::window::PrimaryWindow>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     if keys.pressed(KeyCode::ShiftLeft) && keys.just_pressed(KeyCode::KeyQ) {

@@ -326,11 +326,11 @@ pub fn on_ctrl(mut s: ResMut<State>, mut ctrl: ResMut<Midi<LaunchControlXL>>) {
         };
 
         match input {
-            Input::SendSelect(false, true) => s.device.resize(device_len + shift, 0),
-            Input::SendSelect(true, true) => s.device.resize(device_len.saturating_sub(shift), 0),
+            Input::SendSelect(true, true) => s.device.resize(device_len + shift, 0),
+            Input::SendSelect(false, true) => s.device.resize(device_len.saturating_sub(shift), 0),
 
-            Input::TrackSelect(false, true) => s.device_channel = s.device_channel.saturating_sub(shift),
-            Input::TrackSelect(true, true) => {
+            Input::TrackSelect(true, true) => s.device_channel = s.device_channel.saturating_sub(shift),
+            Input::TrackSelect(false, true) => {
                 s.device_channel = (s.device_channel + shift).min(s.dmx.len() - s.device.len())
             }
 

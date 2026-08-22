@@ -11,7 +11,7 @@
 enable wgpu_ray_query;
 
 #import bevy_render::view::View
-#import bevy_solari::scene_bindings::{trace_ray, RAY_T_MIN}
+#import ravy::trace::{trace_ray, RAY_T_MIN}
 
 // A wheel is only ever on a slot between one move and the next, so the cone
 // carries two of everything a wheel picks and the edge dividing them.

@@ -1,4 +1,5 @@
 use bevy::gltf::GltfMaterialName;
+use bevy::light::NotShadowCaster;
 
 use crate::prelude::*;
 
@@ -65,6 +66,14 @@ pub fn setup_post(
         let mut light = None;
 
         for child in children.iter_descendants(entity) {
+            // Cone and lens off the beam path only; see moving_head.
+            if gltf_materials
+                .get(child)
+                .is_ok_and(|name| name.0.starts_with("Beam") || name.0.starts_with("Lens"))
+            {
+                cmds.entity(child).insert(NotShadowCaster);
+            }
+
             if names.get(child).is_ok_and(|name| name.starts_with("Head")) {
                 let spot = cmds
                     .spawn((

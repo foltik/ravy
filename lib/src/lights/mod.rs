@@ -32,6 +32,24 @@ impl Plugin for LightsPlugin {
             crate::lights::fixture::SaberSpot::default().model(),
         );
 
+        // No device impls here: jetlag drives these with its own machinery.
+        self.models.insert_asset(
+            Path::new("fixtures/SpiderFixture.glb"),
+            &include_bytes!("../../assets/fixtures/SpiderFixture.glb")[..],
+        );
+        self.models.insert_asset(
+            Path::new("fixtures/BeamFixture.glb"),
+            &include_bytes!("../../assets/fixtures/BeamFixture.glb")[..],
+        );
+        self.models.insert_asset(
+            Path::new("fixtures/BigBeamFixture.glb"),
+            &include_bytes!("../../assets/fixtures/BigBeamFixture.glb")[..],
+        );
+        self.models.insert_asset(
+            Path::new("fixtures/BarFixture.glb"),
+            &include_bytes!("../../assets/fixtures/BarFixture.glb")[..],
+        );
+
         app.add_systems(
             PreUpdate,
             (moving_head::setup_pre, moving_head::setup_post, moving_head::update),

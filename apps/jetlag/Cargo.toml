@@ -1,0 +1,15 @@
+[package]
+name = "jetlag"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "jetlag"
+path = "src/jetlag.rs"
+
+[dependencies]
+lib.workspace = true
+bevy.workspace = true
+argh.workspace = true
+rand.workspace = true
+itertools.workspace = true

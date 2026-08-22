@@ -17,7 +17,9 @@ use bevy::image::{ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::light::NotShadowCaster;
 use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
 use bevy::platform::collections::HashMap;
+use bevy::camera::NormalizedRenderTarget;
 use bevy::render::camera::ExtractedCamera;
+use bevy::render::view::window::ExtractedWindows;
 use bevy::render::render_asset::RenderAssets;
 use bevy::tasks::ComputeTaskPool;
 use bevy::render::render_resource::binding_types::{
@@ -41,8 +43,8 @@ use bevy::render::texture::{CachedTexture, GpuImage, TextureCache};
 use bevy::render::view::{ViewDepthTexture, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms};
 use bevy::render::{Extract, ExtractSchedule, GpuResourceAppExt, Render, RenderApp, RenderStartup, RenderSystems};
 use bevy::shader::Shader;
-use bevy::solari::scene::{RaytracingMesh3d, RaytracingSceneBindings};
 
+use super::trace::{TraceMesh, TraceSceneBindings};
 use crate::prelude::*;
 
 /// Pixels on a side of a tile in the beam list.
@@ -480,9 +482,9 @@ fn traceable(
     mut proxies: ResMut<Proxies>,
     solid: Query<
         (Entity, &Mesh3d),
-        (With<MeshMaterial3d<StandardMaterial>>, Without<RaytracingMesh3d>, Without<NotShadowCaster>),
+        (With<MeshMaterial3d<StandardMaterial>>, Without<TraceMesh>, Without<NotShadowCaster>),
     >,
-    lit: Query<Entity, (With<RaytracingMesh3d>, With<NotShadowCaster>)>,
+    lit: Query<Entity, (With<TraceMesh>, With<NotShadowCaster>)>,
 ) {
     for (entity, mesh) in &solid {
         let handle = match proxies.0.get(&mesh.0.id()) {
@@ -500,13 +502,13 @@ fn traceable(
             }
         };
         if let Some(handle) = handle {
-            cmds.entity(entity).insert(RaytracingMesh3d(handle));
+            cmds.entity(entity).insert(TraceMesh(handle));
         }
     }
     // A part only picks up NotShadowCaster once its scene lands, which can be
     // after it was taken for a solid.
     for entity in &lit {
-        cmds.entity(entity).remove::<RaytracingMesh3d>();
+        cmds.entity(entity).remove::<TraceMesh>();
     }
 }
 
@@ -559,8 +561,7 @@ fn proxy(mesh: &Mesh) -> Option<Mesh> {
 }
 
 /// Bindings the march reads. Group 0 belongs to the raytracing scene, which
-/// declares itself there, and which is why this is a compute pass: solari's
-/// bindings are visible to compute shaders only.
+/// declares itself there.
 fn march_layout(msaa: bool) -> BindGroupLayoutDescriptor {
     BindGroupLayoutDescriptor::new(
         match msaa {
@@ -607,7 +608,7 @@ fn init_pipeline(
     device: Res<RenderDevice>,
     fullscreen: Res<FullscreenShader>,
     assets: Res<AssetServer>,
-    scene: Option<Res<RaytracingSceneBindings>>,
+    scene: Option<Res<TraceSceneBindings>>,
 ) {
     if scene.is_none() {
         warn!("no raytracing support: beams will not be drawn");
@@ -787,9 +788,20 @@ fn prepare_textures(
     mut cmds: Commands,
     mut textures: ResMut<TextureCache>,
     device: Res<RenderDevice>,
+    windows: Res<ExtractedWindows>,
     views: Query<(Entity, &ExtractedCamera)>,
 ) {
     for (entity, camera) in &views {
+        // Only the primary window's view, whose clip the beams were binned
+        // against: an offscreen target like a render-to-texture wall would
+        // smear mis-tiled haze over its own content.
+        let window = match &camera.target {
+            Some(NormalizedRenderTarget::Window(w)) => Some(w.entity()),
+            _ => None,
+        };
+        if window != windows.primary {
+            continue;
+        }
         let Some(size) = camera.physical_viewport_size else { continue };
         let mut gather = |label, scale: u32| {
             textures.get(
@@ -856,7 +868,7 @@ fn beam_pass(
     frame: Res<BeamFrame>,
     images: Res<RenderAssets<GpuImage>>,
     views: Res<ViewUniforms>,
-    scene: Option<Res<RaytracingSceneBindings>>,
+    scene: Option<Res<TraceSceneBindings>>,
     mut ctx: RenderContext,
 ) {
     let (target, offset, depth, textures, pipelines, msaa, prepass) = view.into_inner();

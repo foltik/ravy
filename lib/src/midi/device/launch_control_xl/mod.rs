@@ -15,7 +15,9 @@ pub enum Input {
     Pan(u8, f32),
 
     Mode(Mode),
+    /// true = left, matching [`Led::TrackSelect`].
     TrackSelect(bool, bool),
+    /// true = up, matching [`Led::SendSelect`].
     SendSelect(bool, bool),
 
     Device(bool),
@@ -50,7 +52,7 @@ pub enum Output {
 }
 
 impl Output {
-    fn single(&self) -> (Led, Color, Brightness) {
+    pub(crate) fn single(&self) -> (Led, Color, Brightness) {
         match self {
             Output::SendA(i, c, b) => (Led::SendA(*i), *c, *b),
             Output::SendB(i, c, b) => (Led::SendB(*i), *c, *b),
@@ -77,7 +79,9 @@ pub enum Led {
     Focus(u8),
     Control(u8),
 
+    /// true = left.
     TrackSelect(bool),
+    /// true = up.
     SendSelect(bool),
 
     Device,
@@ -175,8 +179,8 @@ impl MidiDevice for LaunchControlXL {
                 0x1d..=0x24 => Input::SendB(raw[1] - 0x1d, float_diverging(raw[2])),
                 0x31..=0x38 => Input::Pan(raw[1] - 0x31, float_diverging(raw[2])),
                 0x4d..=0x54 => Input::Slider(raw[1] - 0x4d, float(raw[2])),
-                0x68..=0x69 => Input::SendSelect(raw[1] == 0x69, raw[2] == 0x7f),
-                0x6a..=0x6b => Input::TrackSelect(raw[1] == 0x6b, raw[2] == 0x7f),
+                0x68..=0x69 => Input::SendSelect(raw[1] == 0x68, raw[2] == 0x7f),
+                0x6a..=0x6b => Input::TrackSelect(raw[1] == 0x6a, raw[2] == 0x7f),
                 _ => return None,
             },
             _ => return None,

@@ -10,6 +10,7 @@ mod fixture;
 pub mod motion;
 mod outcast;
 mod photometry;
+mod trace;
 
 pub use beam::Volumetrics;
 pub use file::{Channel, Gdtf, Geometry, Kind, Mode, Model, Slot};
@@ -32,9 +33,9 @@ pub struct GdtfSystems;
 impl Plugin for GdtfPlugin {
     fn build(&self, app: &mut App) {
         // Builds the acceleration structure the beam pass traces occlusion
-        // against. Solari's lighting passes are deliberately left out: they only
-        // handle directional lights, and every fixture here is a spot.
-        app.add_plugins(bevy::solari::scene::RaytracingScenePlugin)
+        // against. Not solari's scene: its bindings need buffer binding arrays,
+        // which metal lacks, and occlusion only ever needs the structure itself.
+        app.add_plugins(trace::TraceScenePlugin)
             .add_plugins(beam::BeamPlugin)
             .insert_resource(GdtfLibrary::new(self.models.clone()))
             .init_resource::<Haze>()

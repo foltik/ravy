@@ -2,6 +2,7 @@ use crate::prelude::*;
 
 mod audio_inspector;
 mod inspector;
+pub mod mirror;
 mod stats;
 mod ui;
 mod utils;
