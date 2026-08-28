@@ -125,6 +125,18 @@ impl Swatch {
     pub const PINK:    Self = Self::two(Rgbw::PINK,    Wheel2::Pink);
     pub const UV:      Self = Self::two(Rgbw::VIOLET,  Wheel2::Uv);
     pub const CONGO:   Self = Self::one(Rgbw::VIOLET,  Wheel1::Congo);
+
+    // Slots only the wheels have.
+    pub const LAVENDER: Self = Self::two(Rgbw(0.7, 0.6, 1.0, 0.0),  Wheel2::Cold);
+    pub const CTO:      Self = Self::two(Rgbw(1.0, 0.78, 0.5, 0.0), Wheel2::Warm);
+
+    // Half steps: the wheel parked on the edge between two slots, both
+    // filters side by side across the gate. The spots show a genuinely split
+    // beam; the mixing fixtures can only say the blend.
+    pub const RED_BLUE:     Self = Self::one(Rgbw(1.0, 0.0, 1.0, 0.0),  Wheel1::RedBlue);
+    pub const AMBER_ORANGE: Self = Self::one(Rgbw(1.0, 0.45, 0.0, 0.0), Wheel1::AmberOrange);
+    pub const MAGENTA_CYAN: Self = Self::two(Rgbw(0.5, 0.3, 1.0, 0.0),  Wheel2::MagentaCyan);
+    pub const PEA_YELLOW:   Self = Self::two(Rgbw(0.65, 1.0, 0.0, 0.0), Wheel2::PeaYellow);
 }
 
 #[cfg(test)]

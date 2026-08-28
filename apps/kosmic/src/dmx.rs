@@ -22,7 +22,7 @@ use lib::rdm::{RdmWidget, Uid, pid};
 
 use crate::blackout::{Blackout, homed, polar};
 use crate::home::{Home, Rest, SNAP, quarter};
-use crate::logic::{PAN_RANGE, TILT_RANGE, degrees, normalized};
+use crate::logic::{degrees, normalized};
 use crate::sim::{Highlight, Movers};
 use crate::ui::{AMBER, BLUE, DARK, GREEN, RED, knob, knob_centered, lamp, pane, pick};
 
@@ -55,12 +55,21 @@ pub fn travel(slot: usize) -> [f32; 2] {
 pub struct Slot {
     /// Matches the empty in `Kosmic.glb`, e.g. `ColoradoSolo.0`.
     pub name: String,
+    /// The fixture struct that drives this slot, e.g. `ColoradoSolo`.
+    pub kind: &'static str,
     /// RDM manufacturer and model of this fixture type.
     pub ids: (u16, u16),
     pub footprint: usize,
     /// 1-based DMX start address.
     pub address: usize,
     pub uid: Option<Uid>,
+    /// Set while the panel is driving this fixture by hand. Panel state lives
+    /// on the slot, not the device, so it works with the rig unplugged.
+    pub debug: Option<Debug>,
+    /// Set while its blackout window is open in the panel.
+    pub blackout: bool,
+    /// Set while its rest aim is open in the panel.
+    pub home: bool,
 }
 
 #[derive(Resource)]
@@ -87,10 +96,14 @@ fn slots_for<D: GdtfDevice + RdmDevice + Default>(addresses: &[usize]) -> Vec<Sl
         .enumerate()
         .map(|(i, &address)| Slot {
             name: format!("{}.{i}", D::KIND),
+            kind: D::KIND,
             ids: (D::MANUFACTURER, D::MODEL),
             footprint: D::default().channels(),
             address,
             uid: None,
+            debug: None,
+            blackout: false,
+            home: false,
         })
         .collect()
 }
@@ -216,12 +229,6 @@ pub struct Device {
     /// Seconds since the traffic light was last re-armed.
     pub blink: f32,
     pub identify: bool,
-    /// Set while the panel is driving this fixture by hand.
-    pub debug: Option<Debug>,
-    /// Set while its blackout window is open in the panel.
-    pub blackout: bool,
-    /// Set while its rest aim is open in the panel.
-    pub home: bool,
 }
 
 impl Device {
@@ -236,9 +243,6 @@ impl Device {
             footprint: 0,
             blink: f32::MAX,
             identify: false,
-            debug: None,
-            blackout: false,
-            home: false,
         }
     }
 
@@ -432,6 +436,8 @@ pub struct Dmx {
     pub connected: bool,
     pub scanning: bool,
     pub devices: Vec<Device>,
+    /// Device blinking because an assign dropdown entry is hovered over it.
+    hover: Option<Uid>,
     /// Last frame handed to the widget, which only wants the changes.
     last: [u8; 512],
     /// Whether the widget has been given anything yet. Until it has, a black
@@ -454,6 +460,7 @@ impl Dmx {
             connected: false,
             scanning: false,
             devices: vec![],
+            hover: None,
             last: [0; 512],
             primed: false,
         }
@@ -615,54 +622,63 @@ fn knobs(ui: &mut egui::Ui, debug: &mut Debug, travel: [f32; 2]) {
     }
 }
 
-/// A device the panel has taken over: nothing the show wrote for it leaves,
+/// A fixture the panel has taken over: nothing the show wrote for it leaves,
 /// and a debug row puts its own values there instead. Its blackout window
 /// still applies, so sweeping a head by hand shows what the window does.
 ///
 /// A mover with its rest aim open is parked there at full instead, since the
 /// point of setting a rest aim is seeing where it lands.
 pub fn force(
-    mut dmx: ResMut<Dmx>,
-    patch: Res<Patch>,
+    dmx: Res<Dmx>,
+    mut patch: ResMut<Patch>,
     blackout: Res<Blackout>,
     home: Res<Home>,
     movers: Res<Movers>,
     time: Res<Time>,
     mut universe: ResMut<Universe>,
 ) {
-    for device in &mut dmx.devices {
-        if device.debug.is_none() && !device.identify && !device.home {
+    // An identified device is blanked so its own identify blink shows; a
+    // debugged slot at the same address writes over the blank below.
+    for device in &dmx.devices {
+        if device.identify || dmx.hover == Some(device.uid) {
+            let start = device.address.saturating_sub(1).min(universe.0.len());
+            let end = (start + device.footprint).min(universe.0.len());
+            universe.0[start..end].fill(0);
+        }
+    }
+
+    for (i, slot) in patch.slots.iter_mut().enumerate() {
+        if slot.debug.is_none() && !slot.home {
             continue;
         }
-        let start = device.address.saturating_sub(1).min(universe.0.len());
-        let end = (start + device.footprint).min(universe.0.len());
+        let start = slot.address.saturating_sub(1).min(universe.0.len());
+        let end = (start + slot.footprint).min(universe.0.len());
         universe.0[start..end].fill(0);
 
-        let slot = patch.slots.iter().position(|s| s.uid == Some(device.uid));
-        let parked = slot.filter(|slot| device.home && *slot < MOVERS.len());
-        if let Some(slot) = parked {
-            park(&home.movers[slot], slot, device.address, &mut universe);
+        let mover = i < MOVERS.len();
+        if slot.home && mover {
+            park(&home.movers[i], i, slot.address, &mut universe);
             continue;
         }
-        let Some(debug) = &mut device.debug else { continue };
+        let Some(debug) = &mut slot.debug else { continue };
         match &debug.light {
-            Light::Par(l) => place(l, device.address, &mut universe),
+            Light::Par(l) => place(l, slot.address, &mut universe),
             Light::Wash(l) => {
                 let mut light = *l;
-                if let Some(slot) = slot.filter(|slot| *slot < MOVERS.len()) {
-                    blackout.wash(slot, &home.movers[slot], movers.aim[slot], &mut light);
+                if mover {
+                    blackout.wash(i, &home.movers[i], movers.aim[i], &mut light);
                 }
-                place(&light, device.address, &mut universe);
+                place(&light, slot.address, &mut universe);
             }
             Light::Spot(l) => {
                 let mut light = *l;
-                if let Some(slot) = slot.filter(|slot| *slot < MOVERS.len()) {
-                    blackout.spot(slot, &home.movers[slot], movers.aim[slot], &mut light);
+                if mover {
+                    blackout.spot(i, &home.movers[i], movers.aim[i], &mut light);
                 }
                 // The panel commands slots of its own, so it carries its own
                 // travel rather than reading the show's.
                 debug.wheels.mask(&mut light, time.delta_secs());
-                place(&light, device.address, &mut universe);
+                place(&light, slot.address, &mut universe);
             }
         }
     }
@@ -732,6 +748,10 @@ pub fn draw(
     let patch = patch.as_mut();
     // Whichever slot the assign dropdowns are pointing at, for the sim to ring.
     let mut pointed = None;
+    // Whichever device an assign dropdown entry is hovered over, for the rig
+    // to blink.
+    let mut hovered = None;
+    let hover = dmx.hover;
     // The movers whose window is open, which is when the sim draws its volume.
     let mut showing = [false; MOVERS.len()];
 
@@ -762,24 +782,94 @@ pub fn draw(
         });
 
         ui.separator();
-        if dmx.devices.is_empty() {
-            ui.weak(match dmx.scanning {
-                true => "discovering...",
-                false => "nothing on the wire",
-            });
-        }
 
         let tx = &dmx.tx;
-        for device in &mut dmx.devices {
-            let kind = device.engine();
+        // Every patched fixture shows whether or not RDM has seen it, so the
+        // windows and rest aims stay editable with the rig unplugged.
+        let mut order: Vec<usize> = (0..patch.slots.len()).collect();
+        order.sort_by_key(|&i| patch.slots[i].address);
+        for i in order {
             // Only the movers have a blackout window; the pars slot after them.
-            let assigned = patch.slots.iter().position(|s| s.uid == Some(device.uid));
-            let mover = assigned.filter(|slot| *slot < MOVERS.len());
+            let mover = i < MOVERS.len();
+            let found =
+                patch.slots[i].uid.and_then(|uid| dmx.devices.iter().position(|d| d.uid == uid));
+            let live = dmx.connected && found.is_some();
             ui.horizontal(|ui| {
-                lamp(ui, match (device.identify, device.debug.is_some(), device.blink < BLINK_ON) {
-                    (true, ..) => AMBER,
-                    (_, true, _) => BLUE,
+                let (identify, blink) = found
+                    .map(|d| {
+                        let device = &dmx.devices[d];
+                        let identify = device.identify || hover == Some(device.uid);
+                        (identify, device.blink < BLINK_ON)
+                    })
+                    .unwrap_or((false, false));
+                let slot = &patch.slots[i];
+                lamp(ui, match (live, identify, slot.debug.is_some(), blink) {
+                    (false, ..) => RED,
+                    (_, true, ..) => AMBER,
+                    (.., true, _) => BLUE,
                     (.., true) => GREEN,
+                    _ => DARK,
+                });
+                ui.monospace(format!("{:>3}", slot.address)).on_hover_text(match slot.uid {
+                    Some(uid) => format!("{uid} — {} ch", slot.footprint),
+                    None => format!("{} ch", slot.footprint),
+                });
+                match live {
+                    true => _ = ui.label(&slot.name),
+                    false => _ = ui.weak(&slot.name),
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let (point, uid) = assign(ui, i, patch, &dmx.devices);
+                    pointed = pointed.or(point);
+                    hovered = hovered.or(uid);
+                    let slot = &mut patch.slots[i];
+                    if mover && ui.selectable_label(slot.blackout, "blackout").clicked() {
+                        slot.blackout = !slot.blackout;
+                    }
+                    if mover && ui.selectable_label(slot.home, "home").clicked() {
+                        slot.home = !slot.home;
+                    }
+                    let open = slot.debug.is_some();
+                    if ui.selectable_label(open, "debug").clicked() {
+                        slot.debug = match open {
+                            true => None,
+                            false => Debug::new(slot.kind),
+                        };
+                    }
+                    if let Some(d) = found.filter(|_| live) {
+                        let device = &mut dmx.devices[d];
+                        if ui.selectable_label(device.identify, "id").clicked() {
+                            device.identify = !device.identify;
+                            _ = tx.send(Cmd::Identify(device.uid, device.identify));
+                        }
+                    }
+                });
+            });
+            let slot = &mut patch.slots[i];
+            if let Some(debug) = &mut slot.debug {
+                knobs(ui, debug, travel(i));
+            }
+            if slot.home && mover {
+                rest(ui, &mut home, i);
+            }
+            if slot.blackout && mover {
+                showing[i] = true;
+                window(ui, &mut blackout, &home.movers[i], i, movers.aim[i]);
+            }
+        }
+
+        // Anything on the wire that no slot claims still shows, so it can be
+        // identified and picked up from a slot's dropdown.
+        for device in &mut dmx.devices {
+            if patch.slots.iter().any(|s| s.uid == Some(device.uid)) {
+                continue;
+            }
+            ui.horizontal(|ui| {
+                let identify = device.identify || hover == Some(device.uid);
+                lamp(ui, match (identify, device.blink < BLINK_ON) {
+                    (true, _) => AMBER,
+                    (_, true) => GREEN,
                     _ => DARK,
                 });
                 // A device that has answered discovery but not yet been asked
@@ -792,48 +882,18 @@ pub fn draw(
                     0 => device.uid.to_string(),
                     footprint => format!("{} — {footprint} ch", device.uid),
                 });
-                match kind {
-                    Some(kind) => _ = ui.label(kind),
+                match device.engine() {
+                    Some(kind) => _ = ui.weak(kind),
                     None if device.desc.is_empty() => _ = ui.weak(device.uid.to_string()),
                     None => _ = ui.weak(&device.desc),
                 }
-
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    pointed = pointed.or(assign(ui, device, patch));
-                    if mover.is_some() && ui.selectable_label(device.blackout, "blackout").clicked() {
-                        device.blackout = !device.blackout;
-                    }
-                    if mover.is_some() && ui.selectable_label(device.home, "home").clicked() {
-                        device.home = !device.home;
-                    }
-                    if let Some(kind) = kind {
-                        let open = device.debug.is_some();
-                        if ui.selectable_label(open, "debug").clicked() {
-                            device.debug = match open {
-                                true => None,
-                                false => Debug::new(kind),
-                            };
-                        }
-                    }
                     if ui.selectable_label(device.identify, "id").clicked() {
                         device.identify = !device.identify;
                         _ = tx.send(Cmd::Identify(device.uid, device.identify));
                     }
                 });
             });
-            if let Some(debug) = &mut device.debug {
-                // A fixture with no slot has no travel to read; the generic
-                // figures are the best that can be said for it.
-                let travel = mover.map_or([PAN_RANGE, TILT_RANGE], travel);
-                knobs(ui, debug, travel);
-            }
-            if let (true, Some(slot)) = (device.home, mover) {
-                rest(ui, &mut home, slot);
-            }
-            if let (true, Some(slot)) = (device.blackout, mover) {
-                showing[slot] = true;
-                window(ui, &mut blackout, &home.movers[slot], slot, movers.aim[slot]);
-            }
         }
 
         ui.separator();
@@ -850,6 +910,19 @@ pub fn draw(
             });
         });
     });
+
+    // Only changes go on the wire, and a device id'd by hand stays lit when
+    // the pointer moves off it.
+    if dmx.hover != hovered {
+        let manual = |uid: Uid| dmx.devices.iter().any(|d| d.uid == uid && d.identify);
+        if let Some(old) = dmx.hover.filter(|&uid| !manual(uid)) {
+            _ = dmx.tx.send(Cmd::Identify(old, false));
+        }
+        if let Some(new) = hovered.filter(|&uid| !manual(uid)) {
+            _ = dmx.tx.send(Cmd::Identify(new, true));
+        }
+        dmx.hover = hovered;
+    }
 
     for (slot, show) in showing.into_iter().enumerate() {
         for zone in &mut blackout.movers[slot] {
@@ -999,37 +1072,45 @@ fn window(
     }
 }
 
-/// Which fixture in the scene this device drives. Returns the slot the pointer
-/// is over, so the sim can ring the fixture about to be picked.
-fn assign(ui: &mut egui::Ui, device: &Device, patch: &mut Patch) -> Option<usize> {
-    let current = patch.slots.iter().position(|s| s.uid == Some(device.uid));
+/// Which device on the wire drives this fixture. Returns the slot while the
+/// pointer is on the box, so the sim can ring the fixture being patched, and
+/// the device entry hovered over, so the rig can blink it.
+fn assign(
+    ui: &mut egui::Ui,
+    slot: usize,
+    patch: &mut Patch,
+    devices: &[Device],
+) -> (Option<usize>, Option<Uid>) {
+    let current = patch.slots[slot].uid;
     let label = match current {
-        Some(i) => patch.slots[i].name.clone(),
-        None => "unassigned".to_string(),
+        Some(uid) => uid.to_string(),
+        None => "unpatched".to_string(),
     };
-    let mut pointed = None;
+    let mut hovered = None;
     let combo =
-        egui::ComboBox::from_id_salt(device.uid.to_string()).selected_text(label).show_ui(ui, |ui| {
-            if ui.selectable_label(current.is_none(), "unassigned").clicked() {
-                patch.unassign(device.uid);
+        egui::ComboBox::from_id_salt(("assign", slot)).selected_text(label).show_ui(ui, |ui| {
+            if ui.selectable_label(current.is_none(), "unpatched").clicked() {
+                patch.slots[slot].uid = None;
             }
-            let mut order: Vec<usize> = (0..patch.slots.len()).collect();
-            order.sort_by_key(|&i| patch.slots[i].address);
-            for i in order {
-                let slot = &patch.slots[i];
-                let label = format!("{:>3}  {}", slot.address, slot.name);
-                let option = ui.selectable_label(current == Some(i), label);
+            for device in devices {
+                let label = format!("{:>3}  {}", device.address, device.uid);
+                let mut option = ui.selectable_label(current == Some(device.uid), label);
+                if let Some(name) = device.engine() {
+                    option = option.on_hover_text(name);
+                } else if !device.desc.is_empty() {
+                    option = option.on_hover_text(&device.desc);
+                }
                 if option.hovered() {
-                    pointed = Some(i);
+                    hovered = Some(device.uid);
                 }
                 if option.clicked() {
-                    patch.assign(i, device);
+                    patch.assign(slot, device);
                 }
             }
         });
-    // With the list shut, the box stands for what it is already assigned to.
-    match combo.response.hovered() {
-        true => pointed.or(current),
-        false => pointed,
-    }
+    let pointed = match combo.response.hovered() || combo.inner.is_some() {
+        true => Some(slot),
+        false => None,
+    };
+    (pointed, hovered)
 }

@@ -14,13 +14,19 @@ use crate::home::Rest;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Mask {
     All,
+    /// Both mover families; the pars sit out.
     Movers,
+    /// The hydros alone, for the floor pieces nothing else should tread on.
+    Hydros,
     Pars,
 }
 
 impl Mask {
-    pub fn movers(self) -> f32 {
+    pub fn outcasts(self) -> f32 {
         matches!(self, Mask::All | Mask::Movers) as u8 as f32
+    }
+    pub fn hydros(self) -> f32 {
+        matches!(self, Mask::All | Mask::Movers | Mask::Hydros) as u8 as f32
     }
     pub fn pars(self) -> f32 {
         matches!(self, Mask::All | Mask::Pars) as u8 as f32
@@ -72,6 +78,11 @@ impl Look {
         self.color = Some(color);
         self
     }
+
+    pub const fn ringed(mut self, ring: RingPattern) -> Self {
+        self.ring_pattern = Some(ring);
+        self
+    }
 }
 
 /// A fully resolved look, ready to render.
@@ -82,6 +93,9 @@ pub struct Looked {
     pub texture: Texture,
     pub beam: Swatch,
     pub par: Rgbw,
+    /// Whether a look pinned the colour, which shuts out the palette's
+    /// per-fixture variety.
+    pub colored: bool,
     pub ring_pattern: RingPattern,
     pub mask: Mask,
 }
@@ -102,6 +116,7 @@ impl Looked {
         if let Some(c) = o.color {
             self.beam = c;
             self.par = c.rgbw;
+            self.colored = true;
         }
         if let Some(p) = o.ring_pattern {
             self.ring_pattern = p;
@@ -130,6 +145,16 @@ impl Looked {
         match self.energy {
             Energy::Off => home.zoom,
             _ => self.texture.zoom,
+        }
+    }
+
+    /// The zoom right now: held, or swelling up to the texture's `breathe`,
+    /// each fixture a quarter turn behind the last.
+    pub fn zoom_at(&self, s: &State, pd: Pd, fr: f32, home: &Rest) -> f32 {
+        let base = self.zoom(home);
+        match (self.energy, self.texture.breathe > 0.0) {
+            (Energy::Off, _) | (_, false) => base,
+            _ => s.pd(pd).phase(1.0, fr).fsin(1.0).lerp(base..self.texture.breathe),
         }
     }
 }
@@ -164,18 +189,27 @@ impl Energy {
 
     /// Brightness envelope, with `fr` staggering chases across fixtures.
     pub fn env(&self, s: &State, fr: f32) -> f32 {
+        self.env_at(s, fr, 0.0)
+    }
+
+    /// `env` with the pattern slid by `offset` of its period: how the pars
+    /// run one energy out of step with each other.
+    pub fn env_at(&self, s: &State, fr: f32, offset: f32) -> f32 {
         match self {
             Energy::Off => 0.0,
             Energy::On => 1.0,
-            Energy::Beat { pd } => s.pd(pd.mul(2)).ramp(1.0).inv().lerp(0.2..1.0).in_quad(),
+            Energy::Beat { pd } => {
+                s.pd(pd.mul(2)).phase(1.0, offset).ramp(1.0).inv().lerp(0.2..1.0).in_quad()
+            }
             Energy::Strobe { pd, duty } => {
-                s.pd(pd.mul(2)).square(1.0, duty.in_exp().lerp(1.0..0.5))
+                s.pd(pd.mul(2)).phase(1.0, offset).square(1.0, duty.in_exp().lerp(1.0..0.5))
             }
-            Energy::Chase { pd } => s.pd(pd.mul(4)).phase(1.0, fr).square(1.0, 0.1),
-            Energy::Swell { pd } => s.pd(pd.mul(4)).phase(1.0, fr).tri(1.0),
-            Energy::Alternate { pd } => {
-                s.pd(*pd).phase(1.0, if fr < 0.5 { 0.0 } else { 0.5 }).square(1.0, 0.33)
-            }
+            Energy::Chase { pd } => s.pd(pd.mul(4)).phase(1.0, fr + offset).square(1.0, 0.1),
+            Energy::Swell { pd } => s.pd(pd.mul(4)).phase(1.0, fr + offset).tri(1.0),
+            Energy::Alternate { pd } => s
+                .pd(*pd)
+                .phase(1.0, (if fr < 0.5 { 0.0 } else { 0.5 }) + offset)
+                .square(1.0, 0.33),
         }
     }
 }
@@ -206,6 +240,10 @@ pub struct Texture {
     pub prism_rot: f32,
     pub frost: f32,
     pub ring: RingMode,
+    /// Zoom swells from `zoom` up to here over the movement's period, walked
+    /// across the rig; 0 holds `zoom` still. The outcasts have the range for
+    /// it: a 6 degree pencil out to a 50 degree flood.
+    pub breathe: f32,
 }
 
 impl Texture {
@@ -219,6 +257,7 @@ impl Texture {
         prism_rot: 0.0,
         frost: 0.0,
         ring: RingMode::Both,
+        breathe: 0.0,
     };
 }
 
@@ -245,8 +284,8 @@ pub const STYLES: &[Style] = &[
     Style { name: "beams",  color: Rgbw::WHITE,   movements: &[Movement::SpreadOut, Movement::CrissCross { pitch: 0.4 }],       texture: Texture::OPEN },
     Style { name: "gobo",   color: Rgbw::ORANGE,  movements: &[Movement::WaveY, Movement::Twisting],                            texture: Texture { gobo: Gobo::Lines, gobo_rot: 200, focus: 0.4, ..Texture::OPEN } },
     Style { name: "prism",  color: Rgbw::VIOLET,  movements: &[Movement::Whirl, Movement::Spinner],                             texture: Texture { prism: Prism::Linear, prism_rot: 0.1, ..Texture::OPEN } },
-    Style { name: "sniper", color: Rgbw::RED,     movements: &[Movement::Out, Movement::SnapX],                                 texture: Texture { ring: RingMode::Center, ..Texture::OPEN } },
-    Style { name: "pixel",  color: Rgbw::MAGENTA, movements: &[Movement::Square, Movement::SnapY],                              texture: Texture { ring: RingMode::Ring, ..Texture::OPEN } },
+    Style { name: "sniper", color: Rgbw::RED,     movements: &[Movement::Out, Movement::Scissor],                               texture: Texture { ring: RingMode::Center, ..Texture::OPEN } },
+    Style { name: "pixel",  color: Rgbw::MAGENTA, movements: &[Movement::Square, Movement::Pendulum],                           texture: Texture { ring: RingMode::Ring, ..Texture::OPEN } },
     Style { name: "riser",  color: Rgbw::MINT,    movements: &[Movement::RaisingBeams],                                         texture: Texture::OPEN },
     Style { name: "chaos",  color: Rgbw::PINK,    movements: &[Movement::Twisting, Movement::DarthMaul],                        texture: Texture { prism: Prism::Linear, ..Texture::OPEN } },
     Style { name: "keys",   color: Rgbw::PEA,     movements: &[Movement::Keyed(&FAN), Movement::Keyed(&BOX), Movement::Keyed(&PULSE)], texture: Texture::OPEN },
@@ -277,8 +316,10 @@ pub enum Movement {
     /// A cross whose pitch and spread breathe in and out over eight passes.
     CrossSway,
     WaveY,
-    SnapX,
-    SnapY,
+    /// The pair swinging from crossed to opened, an X drawn overhead.
+    Scissor,
+    /// A pitch pendulum through the zenith, the pairs antiphase.
+    Pendulum,
     Square,
     Whirl,
     RaisingBeams,
@@ -286,6 +327,13 @@ pub enum Movement {
     DarthMaul,
     Spinner,
     UpDownWave,
+    /// Gobo pools circling the stage floor behind the rig. Hydros only; the
+    /// outcasts have no gate and park.
+    FloorCircle,
+    /// Gobo lines raked across the stage floor, the pair crossing.
+    FloorSweep,
+    /// Leaning back at the stage wall, barely moving.
+    Backstage,
     /// Aim at a point in the room, using the fixture's place in the model.
     LookAt(Vec3),
     /// `LookAt`, with the target sliding back and forth over `delta`.
@@ -336,7 +384,7 @@ impl Pose {
     /// of centre stage works as a mirror image. `mirrored` is what a track can
     /// drop to stay uniform: the heads still rest where their flips put them,
     /// but they all work the same way from there rather than against each other.
-    fn aim(self, home: &Rest, slot: usize, mirrored: bool) -> (f32, f32) {
+    pub fn aim(self, home: &Rest, slot: usize, mirrored: bool) -> (f32, f32) {
         let travel = travel(slot);
         let (rest_pitch, rest_yaw) = home.aim();
         let (pitch, yaw) = match mirrored {
@@ -453,10 +501,13 @@ const HYDRO_YAW: f32 = 90.0 / PAN_RANGE;
 
 /// Put a raw mslive aim on this rig: the outcasts hang the other way up, and
 /// the hydros sit a quarter turn round from what the patterns were written for.
-fn rigged(slot: usize, (pitch, yaw): (f32, f32)) -> (f32, f32) {
+/// An aim the turn pushes past the end of the pan travel pins there: the travel
+/// is not a whole number of revolutions, so wrapping by it faces the head 180
+/// degrees off, and parks a pattern that swings between the two ends.
+pub(super) fn rigged(slot: usize, (pitch, yaw): (f32, f32)) -> (f32, f32) {
     match OUTCASTS.contains(&slot) {
         true => (1.0 - pitch, yaw),
-        false => (pitch, (yaw + HYDRO_YAW).fmod(1.0)),
+        false => (pitch, (yaw + HYDRO_YAW).min(1.0)),
     }
 }
 
@@ -495,7 +546,91 @@ impl Movement {
                 let target = target + delta * s.pd(pd).fsin(1.0);
                 Movement::LookAt(target).angles(s, pd, i, fr, world, home)
             }
+            Movement::Out
+            | Movement::WaveY
+            | Movement::UpDownWave
+            | Movement::RaisingBeams
+            | Movement::Twisting
+            | Movement::Scissor
+            | Movement::Pendulum
+            | Movement::FloorCircle
+            | Movement::FloorSweep
+            | Movement::Backstage => self.posed(s, pd, i, fr).aim(home, i, true),
             _ => rigged(i, self.raw(s, pd, i, fr)),
+        }
+    }
+
+    /// The pose-frame patterns, in degrees off the rest aim and mirrored
+    /// across each pair: pitch 0 is the zenith, positive tips forward at the
+    /// crowd, negative back over the stage.
+    fn posed(self, s: &State, pd: Pd, i: usize, fr: f32) -> Pose {
+        match self {
+            Movement::Out => Pose::HOME,
+            Movement::WaveY => match OUTCASTS.contains(&i) {
+                // Forward horizon up through the zenith and back; the mask
+                // keeps it dark until it clears faces.
+                true => Pose { pitch: s.pd(pd.mul(4)).tri(1.0).lerp(90.0..0.0), yaw: 0.0 },
+                // The hydros stay behind the vertical, at their own rate.
+                false => Pose { pitch: s.pd(pd.mul(2)).tri(1.0).lerp(-40.0..0.0), yaw: 0.0 },
+            },
+            // A vertical wave rolling down the rig, behind the vertical.
+            Movement::UpDownWave => {
+                let t = s.pd(pd.mul(4)).phase(1.0, fr * 0.25).tri(1.0);
+                Pose { pitch: t.lerp(-35.0..0.0), yaw: 0.0 }
+            }
+            // Beams rising one after another, forward-high up through the
+            // zenith; the mask lifts each in once it clears faces and hides
+            // the fall back.
+            Movement::RaisingBeams => {
+                let ph = (s.pd(pd.mul(2)) + fr * 2.0) % 1.0;
+                Pose { pitch: 65.0 - 75.0 * ph, yaw: 0.0 }
+            }
+            // A smooth wander round the back sky, each head on its own mix
+            // of slow sines.
+            Movement::Twisting => {
+                let a = s.pd(Pd(32, 1)).phase(1.0, fr * 1.7).ssin(1.0);
+                let b = s.pd(Pd(8, 1)).phase(1.0, fr * 3.1).ssin(1.0);
+                let yaw = 24.0 * s.pd(Pd(16, 1)).phase(1.0, fr * 2.3).ssin(1.0) + 8.0 * b;
+                Pose { pitch: -25.0 + 14.0 * a + 8.0 * b, yaw }
+            }
+            Movement::Scissor => {
+                Pose { pitch: -15.0, yaw: s.pd(pd.mul(4)).fsin(1.0).lerp(-30.0..30.0) }
+            }
+            Movement::Pendulum => Pose {
+                pitch: s.pd(pd.mul(4))
+                    .phase(1.0, (i % 2) as f32 * 0.5)
+                    .fsin(1.0)
+                    .lerp(-35.0..0.0),
+                yaw: 0.0,
+            },
+            // The floor pieces are the hydros'; the outcasts have no gate
+            // and park.
+            _ if OUTCASTS.contains(&i) => Pose::HOME,
+            // Two pools circling the dance floor out front, half a turn
+            // apart. The tilt bottoms just inside the travel's end at 135.
+            Movement::FloorCircle => {
+                let ph = s.pd(pd) + (i % 2) as f32 * 0.5;
+                Pose { pitch: 123.0 + 10.0 * ph.scos(1.0), yaw: 18.0 + 16.0 * ph.ssin(1.0) }
+            }
+            Movement::FloorSweep => {
+                Pose { pitch: 120.0, yaw: s.pd(pd).tri(1.0).lerp(-12.0..40.0) }
+            }
+            // On the stage wall behind: a figure of eight, or bobbing with
+            // the two sides out of step. Which one is the spice's call.
+            Movement::Backstage => {
+                let t = s.pd(pd);
+                match s.seed % 2 {
+                    0 => Pose {
+                        pitch: -60.0 + 12.0 * (t * 2.0).ssin(1.0),
+                        yaw: 10.0 + 14.0 * t.ssin(1.0),
+                    },
+                    _ => Pose {
+                        pitch: -60.0 + 14.0 * (t * 2.0 + (i % 2) as f32 * 0.3).ssin(1.0),
+                        yaw: 10.0,
+                    },
+                }
+            }
+            _ => Pose::HOME,
         }
     }
 
@@ -503,7 +638,6 @@ impl Movement {
     fn raw(self, s: &State, pd: Pd, i: usize, fr: f32) -> (f32, f32) {
         match self {
             Movement::Down => (0.0, 0.0),
-            Movement::Out => (0.5, 0.0),
             Movement::Center => (
                 0.85,
                 match i {
@@ -545,31 +679,6 @@ impl Movement {
                 let t = s.pd(pd.mul(8)).fsin(1.0);
                 cross(i, (1.0 - t) * 0.3 + 0.1, Some(t * 0.2 - 0.1), Some(1.5))
             }
-            Movement::SnapY => {
-                let t = s.pd(pd.mul(4)).square(1.0, 0.5);
-                let pitch = 0.3
-                    * match i % 2 == 0 {
-                        true => t,
-                        false => 1.0 - t,
-                    };
-                (pitch, 0.5)
-            }
-            Movement::SnapX => {
-                let t = s.pd(pd.mul(4)).negsquare(1.0, 0.5);
-                let pitch = 0.3 * s.pd(pd.mul(2)).square(1.0, 0.5);
-                let yaw = 0.5
-                    + 0.13
-                        * match i > 1 {
-                            true => t,
-                            false => -t,
-                        };
-                (pitch, yaw)
-            }
-            Movement::WaveY => {
-                let t = s.pd(pd.mul(4)).tri(1.0);
-                let pitch = 0.15 + 0.40 * t;
-                (1.0 - pitch, 0.0)
-            }
             Movement::Square => {
                 let t_pitch = s.pd(pd.mul(4)).phase(1.0, 0.25).square(1.0, 0.5);
                 let t_yaw = match i % 2 == 0 {
@@ -592,39 +701,18 @@ impl Movement {
                     WhirlState::DoingSubrotation { pitch, yaw, .. } => (pitch, yaw),
                 }
             }
-            Movement::RaisingBeams => {
-                let angle = (s.pd(pd.mul(2)) + fr * 2.0) % 1.0;
-                let pitch = if angle < 0.7 {
-                    0.5 - angle / 0.7 * 0.5
-                } else if angle < 0.9 {
-                    0.6
-                } else {
-                    0.5 - (angle - 0.9)
-                };
-                let pitch = 1.0 - pitch;
-
-                (pitch * 0.9, 0.0)
-            }
-            Movement::Twisting => {
-                use rand::prelude::*;
-                let seed = (s.pd(pd.mul(512)) * 255.) as u8;
-                let mut seed_array = [seed; 32];
-                seed_array[0] = i as u8;
-                let mut rng = rand::prelude::StdRng::from_seed(seed_array);
-                let yaw = rng.sample(rand::distributions::Uniform::new(0.0, 1.0));
-                let pitch = rng.sample(rand::distributions::Uniform::new(0.2, 0.8));
-                (pitch, yaw)
-            }
             Movement::DarthMaul => (
-                0.2,
+                0.4,
                 match i {
                     _ if i % 2 == 0 => s.pd(pd.mul(8)).tri(1.0).lerp(0.2..0.8),
                     _ if i % 2 == 1 => s.pd(pd.mul(8)).tri(1.0).lerp(0.2..0.8) + 0.66,
                     _ => 0.0,
                 },
             ),
-            Movement::Spinner => (0.3, s.pd(Pd(8, 1)).phase(1.0, fr * 0.1).square(1.0, 0.5)),
-            Movement::UpDownWave => (0.2, s.pd(Pd(8, 1)).phase(1.0, fr * 0.1).square(1.0, 0.5)),
+            // A lighthouse: a high cone swept there and back, never the full
+            // pan snap the indoor rig ran, which reads as a horizontal sweep
+            // across the crowd out here.
+            Movement::Spinner => (0.42, s.pd(Pd(8, 1)).phase(1.0, fr * 0.1).tri(1.0).lerp(0.2..0.8)),
             _ => (0.5, 0.5),
         }
     }
@@ -644,8 +732,9 @@ impl Movement {
         ((0.5 + tilt / TILT_RANGE).clamp(0.0, 1.0), (0.5 + pan / PAN_RANGE).clamp(0.0, 1.0))
     }
 
-    /// Per-fixture brightness mask for patterns that hide the reset sweep.
-    pub fn mask(self, s: &State, pd: Pd, _i: usize, fr: f32) -> f32 {
+    /// Per-fixture brightness mask: hides reset sweeps, and keeps a beam
+    /// dark wherever its pattern carries it below the sky.
+    pub fn mask(self, s: &State, pd: Pd, i: usize, fr: f32) -> f32 {
         match self {
             Movement::Whirl => {
                 let angle = (s.pd(pd) + fr * 1.5) % 1.0;
@@ -661,9 +750,16 @@ impl Movement {
                     }
                 }
             }
+            // Lit only once the rise clears faces, gone before the wrap.
             Movement::RaisingBeams => {
-                let angle = (s.pd(pd) + fr * 2.0) % 1.0;
-                if angle < 0.45 { (angle - 0.1).trapazoid(0.5, 0.1) } else { 0.0 }
+                let ph = (s.pd(pd.mul(2)) + fr * 2.0) % 1.0;
+                (ph - 0.2).trapazoid(0.75, 0.1).clamp(0.0, 1.0)
+            }
+            // The outcasts' sweep reaches the forward horizon; they fade out
+            // well above eye level on the way down.
+            Movement::WaveY if OUTCASTS.contains(&i) => {
+                let pitch = s.pd(pd.mul(4)).tri(1.0).lerp(90.0..0.0);
+                ((55.0 - pitch) / 20.0).clamp(0.0, 1.0)
             }
             _ => 1.0,
         }

@@ -1,3 +1,4 @@
+pub mod ambient;
 mod color;
 mod logic;
 mod look;

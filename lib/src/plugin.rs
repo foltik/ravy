@@ -19,6 +19,15 @@ impl Plugin for RavyPlugin {
             (_, _)    => ("info",  "warn"),  // default
         };
 
+        let quiet = if self.debug || self.trace {
+            ""
+        } else {
+            // Benign startup noise: no XSETTINGS daemon, swapchain rebuilds while
+            // the window settles, no @invariant in bevy's mesh shader under the
+            // depth prepass.
+            ",winit::platform_impl::linux::x11::xdisplay=error,bevy_render::view::window=error,wgpu_core::validation=error"
+        };
+
         // XXX: fix the data flow
         let models = Dir::default();
         let reader = MemoryAssetReader { root: models.clone() };
@@ -31,7 +40,7 @@ impl Plugin for RavyPlugin {
 
         app.add_plugins(DefaultPlugins.set(bevy::log::LogPlugin {
             // lib is ours too, so it speaks at the app's level, not a dep's.
-            filter: format!("{deps_log_level},lib={app_log_level},{}={app_log_level}", self.module),
+            filter: format!("{deps_log_level}{quiet},lib={app_log_level},{}={app_log_level}", self.module),
             ..default()
         }))
         .add_plugins(super::gltf::GltfScenePlugin)

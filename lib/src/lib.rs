@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 #![allow(incomplete_features)]
 #![allow(clippy::module_inception)]
 #![allow(clippy::eq_op)]

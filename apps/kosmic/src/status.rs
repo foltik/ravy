@@ -3,7 +3,8 @@
 
 use lib::prelude::*;
 
-use crate::logic::{STYLES, State};
+use crate::logic::ambient::{self, Force};
+use crate::logic::{Mode, STYLES, State};
 use crate::rig::Trim;
 use crate::sim::Room;
 use crate::ui::{knob, knob_log, pane};
@@ -16,7 +17,7 @@ const AIR: [(&str, f32); 5] =
 
 pub fn draw(
     mut ctxs: EguiContexts,
-    s: Res<State>,
+    mut s: ResMut<State>,
     mut trim: ResMut<Trim>,
     mut room: ResMut<Room>,
     mut haze: ResMut<Haze>,
@@ -30,13 +31,76 @@ pub fn draw(
         ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
 
         ui.horizontal(|ui| {
-            chip(ui, &format!("{:?}", s.mode), egui::Color32::from_rgb(90, 80, 140));
-            chip(ui, &format!("{:.1} bpm", s.bpm), egui::Color32::from_gray(55));
+            for (mode, name) in [
+                (Mode::Perform, "Perform"),
+                (Mode::Simple, "Simple"),
+                (Mode::Auto, "Auto"),
+                (Mode::Ambient, "Ambient"),
+            ] {
+                if ui.selectable_label(s.mode == mode, name).clicked() {
+                    s.set_mode(mode);
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            // Violet while a run of taps is still coming in.
+            let fill = match s.tapping() {
+                true => egui::Color32::from_rgb(120, 70, 200),
+                false => egui::Color32::from_gray(55),
+            };
+            chip(ui, &format!("{:.1} bpm", s.bpm), fill);
             if s.phi_mul != 1.0 {
                 chip(ui, &format!("x{:.2}", s.phi_mul), egui::Color32::from_gray(55));
             }
         });
         beats(ui, s.phi);
+        match s.mode {
+            Mode::Simple => {
+                knob(ui, "simple dim", &mut s.simple_dim, 0.0..=1.0);
+            }
+            Mode::Ambient => {
+                ui.horizontal_wrapped(|ui| {
+                    for (force, name) in [
+                        (Force::Auto, "auto"),
+                        (Force::Day, "day"),
+                        (Force::Dusk, "dusk"),
+                        (Force::Pattern(0), "waves"),
+                        (Force::Pattern(1), "circles"),
+                        (Force::Pattern(2), "stage"),
+                        (Force::Pattern(3), "cross"),
+                        (Force::Pattern(4), "orbit"),
+                    ] {
+                        if ui.radio(s.ambient_force == force, name).clicked() {
+                            s.ambient_force = force;
+                        }
+                    }
+                });
+                if s.ambient_force == Force::Dusk {
+                    knob(ui, "dusk phase", &mut s.ambient_fr, 0.0..=1.0);
+                }
+                // The slider follows the clock, or the pinned dusk position;
+                // dragging it only means anything under an override.
+                match (s.ambient_force, s.ambient_override) {
+                    (Force::Dusk, _) => s.ambient_hour = ambient::dusk_hour(s.ambient_fr),
+                    (Force::Auto, false) => s.ambient_hour = ambient::hour_now(),
+                    _ => {}
+                }
+                let at = format!(
+                    "{:02}:{:02}",
+                    s.ambient_hour as i32 % 24,
+                    (s.ambient_hour.fract() * 60.0) as i32
+                );
+                ui.checkbox(&mut s.ambient_override, format!("override time of day  ({at})"));
+                ui.scope(|ui| {
+                    ui.spacing_mut().slider_width = ui.available_width();
+                    ui.add_enabled(
+                        s.ambient_override,
+                        egui::Slider::new(&mut s.ambient_hour, 16.0..=24.0).show_value(false),
+                    );
+                });
+            }
+            _ => {}
+        }
 
         ui.separator();
         ui.horizontal(|ui| {

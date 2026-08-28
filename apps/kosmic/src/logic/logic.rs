@@ -4,6 +4,7 @@ use rand::Rng;
 use rand::rngs::ThreadRng;
 
 use super::Swatch;
+use super::ambient;
 use super::look::*;
 use super::palette::*;
 use super::special::*;
@@ -18,6 +19,15 @@ use crate::sim::Movers;
 use crate::{beat, bind, func, look, palette};
 
 ///////////////////////// BINDINGS /////////////////////////
+
+// The optics the texture pieces carry. Rotation bytes are physical: 200 is a
+// ~40 deg/s counter-clockwise grind, 188 a ~17 deg/s clockwise crawl.
+const T_POOLS: Texture = Texture { gobo: Gobo::Dots, gobo_rot: 199, focus: 0.25, zoom: 1.0, ..Texture::OPEN };
+const T_RAKE: Texture = Texture { gobo: Gobo::Lines, focus: 0.3, zoom: 0.5, ..Texture::OPEN };
+const T_FLOWER: Texture = Texture { gobo: Gobo::Flower, prism: Prism::Circular, prism_rot: 0.12, focus: 0.3, zoom: 0.2, ..Texture::OPEN };
+const T_HAZE: Texture = Texture { gobo: Gobo::Dots, gobo_rot: 188, focus: 0.35, zoom: 0.25, ..Texture::OPEN };
+const T_BREATHE: Texture = Texture { breathe: 1.0, ..Texture::OPEN };
+const T_GRIND: Texture = Texture { gobo: Gobo::Lines, gobo_rot: 200, focus: 0.4, ..Texture::OPEN };
 
 bind! {
 
@@ -47,26 +57,31 @@ perform:
     (5, 0) => look!(Look::new(Energy::On, Movement::Whirl, Pd(16, 1)).masked(Mask::Movers)),
     (6, 0) => look!(Look::new(Energy::On, Movement::UpDownWave, Pd(4, 1)).masked(Mask::Movers)),
 
-    // --- y=1: full on ---
-    (1, 1) => look!(Look::new(Energy::On, Movement::Out, Pd(4, 1))),
-    (2, 1) => look!(Look::new(Energy::On, Movement::Out, Pd(4, 1))),
-    (3, 1) => look!(Look::new(Energy::On, Movement::WaveY, Pd(4, 1))),
-    (4, 1) => look!(Look::new(Energy::On, Movement::SnapX, Pd(4, 1))),
-    (5, 1) => look!(Look::new(Energy::On, Movement::Whirl, Pd(4, 1))),
-    (6, 1) => look!(Look::new(Energy::On, Movement::Twisting, Pd(4, 1))),
+    // --- y=1: still low, but moving: pairs and wanders, the pars only ever
+    // sparse through the spice ---
+    (1, 1) => look!(Look::new(Energy::On, Movement::Scissor, Pd(8, 1)).masked(Mask::Movers)),
+    (2, 1) => look!(Look::new(Energy::On, Movement::Pendulum, Pd(8, 1)).masked(Mask::Movers)),
+    (3, 1) => look!(Look::new(Energy::On, Movement::Twisting, Pd(4, 1))),
+    (4, 1) => look!(Look::new(Energy::On, Movement::Spinner, Pd(8, 1)).masked(Mask::Movers)),
+    (5, 1) => look!(Look::new(Energy::On, Movement::DarthMaul, Pd(8, 1)).masked(Mask::Movers)),
+    (6, 1) => look!(Look { texture: Some(T_BREATHE), ..Look::new(Energy::On, Movement::UpDownWave, Pd(8, 1)) }),
 
-    // --- y=2..4: flashing to the beat, slowest row at the bottom ---
-    (1, 2) => look!(Look::new(Energy::Swell { pd: Pd(1, 1) }, Movement::WaveY, Pd(4, 1))),
-    (2, 2) => look!(Look::new(Energy::Beat { pd: Pd(4, 1) }, Movement::RaisingBeams, Pd(4, 1))),
-    (3, 2) => look!(Look::new(Energy::Beat { pd: Pd(4, 1) }, Movement::WaveY, Pd(4, 1))),
-    (4, 2) => look!(Look::new(Energy::Beat { pd: Pd(4, 1) }, Movement::UpDownWave, Pd(4, 1))),
-    (5, 2) => look!(Look::new(Energy::Beat { pd: Pd(4, 1) }, Movement::Whirl, Pd(4, 1))),
-    (6, 2) => look!(Look::new(Energy::Beat { pd: Pd(4, 1) }, Movement::Twisting, Pd(4, 1))),
+    // --- y=2: the hydros' optics, kept low. Gobo pools and rakes on the
+    // dance floor, texture in the haze, the beams breathing wide: pieces
+    // that leave most of the rig dark. ---
+    (1, 2) => look!(Look { texture: Some(T_POOLS), ..Look::new(Energy::On, Movement::FloorCircle, Pd(16, 1)).masked(Mask::Hydros) }),
+    (2, 2) => look!(Look { texture: Some(T_RAKE), ..Look::new(Energy::On, Movement::FloorSweep, Pd(8, 1)).masked(Mask::Hydros) }),
+    (3, 2) => look!(Look { texture: Some(T_FLOWER), ..Look::new(Energy::On, Movement::FloorCircle, Pd(32, 1)).masked(Mask::Hydros) }),
+    (4, 2) => look!(Look { texture: Some(T_HAZE), ..Look::new(Energy::On, Movement::Out, Pd(4, 1)).masked(Mask::Movers) }),
+    (5, 2) => look!(Look { texture: Some(T_BREATHE), ..Look::new(Energy::On, Movement::WaveY, Pd(8, 1)).masked(Mask::Movers) }),
+    (6, 2) => look!(Look { texture: Some(T_GRIND), ..Look::new(Energy::On, Movement::Backstage, Pd(16, 1)).masked(Mask::Hydros) }),
 
-    (1, 3) => look!(Look::new(Energy::Swell { pd: Pd(1, 2) }, Movement::Square, Pd(4, 1))),
-    (2, 3) => look!(Look::new(Energy::Beat { pd: Pd(2, 1) }, Movement::RaisingBeams, Pd(2, 1))),
-    (3, 3) => look!(Look::new(Energy::Beat { pd: Pd(2, 1) }, Movement::WaveY, Pd(2, 1))),
-    (4, 3) => look!(Look::new(Energy::Beat { pd: Pd(2, 1) }, Movement::UpDownWave, Pd(2, 1))),
+    // --- y=3: pulses, two rows of near-identical beats boiled down to one:
+    // the swells, then the half-note beats. ---
+    (1, 3) => look!(Look::new(Energy::Swell { pd: Pd(1, 1) }, Movement::WaveY, Pd(4, 1))),
+    (2, 3) => look!(Look::new(Energy::Swell { pd: Pd(1, 2) }, Movement::Square, Pd(4, 1))),
+    (3, 3) => look!(Look::new(Energy::Beat { pd: Pd(4, 1) }, Movement::RaisingBeams, Pd(4, 1))),
+    (4, 3) => look!(Look::new(Energy::Beat { pd: Pd(2, 1) }, Movement::WaveY, Pd(2, 1))),
     (5, 3) => look!(Look::new(Energy::Beat { pd: Pd(2, 1) }, Movement::Whirl, Pd(2, 1))),
     (6, 3) => look!(Look::new(Energy::Beat { pd: Pd(2, 1) }, Movement::Twisting, Pd(2, 1))),
 
@@ -77,22 +92,21 @@ perform:
     (5, 4) => look!(Look::new(Energy::Beat { pd: Pd(1, 1) }, Movement::Whirl, Pd(1, 1))),
     (6, 4) => look!(Look::new(Energy::Beat { pd: Pd(1, 1) }, Movement::Twisting, Pd(1, 1))),
 
-    // --- y=5: strobes and chases ---
+    // --- y=5: strobes and chases, the rings running wild with them ---
     (0, 5) => look!(Look::new(Energy::Strobe { pd: Pd(1, 8), duty: 1.0 }, Movement::Square, Pd(2, 1)).masked(Mask::Pars)),
-    (1, 5) => look!(Look::new(Energy::Alternate { pd: Pd(1, 4) }, Movement::CrossSway, Pd(1, 4)).masked(Mask::Movers)),
-    (2, 5) => look!(Look::new(Energy::Strobe { pd: Pd(1, 4), duty: 1.0 }, Movement::Square, Pd(2, 1))),
-    (3, 5) => look!(Look::new(Energy::Strobe { pd: Pd(1, 8), duty: 1.0 }, Movement::Square, Pd(2, 1))),
-    (4, 5) => look!(Look::new(Energy::Chase { pd: Pd(1, 2) }, Movement::Twisting, Pd(1, 2))),
-    (5, 5) => look!(Look::new(Energy::Chase { pd: Pd(1, 1) }, Movement::Twisting, Pd(1, 2)).colored(Swatch::WHITE)),
-    (6, 5) => look!(Look::new(Energy::Chase { pd: Pd(1, 2) }, Movement::Twisting, Pd(1, 2)).colored(Swatch::WHITE)),
-    (7, 5) => look!(Look::new(Energy::Chase { pd: Pd(1, 4) }, Movement::Twisting, Pd(1, 2)).colored(Swatch::WHITE)),
+    (1, 5) => look!(Look::new(Energy::Alternate { pd: Pd(1, 4) }, Movement::CrossSway, Pd(1, 4)).masked(Mask::Movers).ringed(RingPattern::FlipZigzag)),
+    (2, 5) => look!(Look::new(Energy::Strobe { pd: Pd(1, 4), duty: 1.0 }, Movement::Square, Pd(2, 1)).ringed(RingPattern::RotateTwelve)),
+    (3, 5) => look!(Look::new(Energy::Strobe { pd: Pd(1, 8), duty: 1.0 }, Movement::Square, Pd(2, 1)).ringed(RingPattern::FlipRandom)),
+    (4, 5) => look!(Look::new(Energy::Chase { pd: Pd(1, 2) }, Movement::Twisting, Pd(1, 2)).ringed(RingPattern::RotateSix)),
+    (5, 5) => look!(Look::new(Energy::Chase { pd: Pd(1, 1) }, Movement::Twisting, Pd(1, 2)).colored(Swatch::WHITE).ringed(RingPattern::FlipZigzag)),
+    (6, 5) => look!(Look::new(Energy::Chase { pd: Pd(1, 2) }, Movement::Twisting, Pd(1, 2)).colored(Swatch::WHITE).ringed(RingPattern::RotateTwelve)),
+    (7, 5) => look!(Look::new(Energy::Chase { pd: Pd(1, 4) }, Movement::Twisting, Pd(1, 2)).colored(Swatch::WHITE).ringed(RingPattern::FlipRandom)),
 
 }
 
 ///////////////////////// PALETTE BANKS /////////////////////////
 
-/// A bankful of colour, filling y=6 and y=7. The four arrows pick between them,
-/// so the fourteen colour buttons are worth fifty-six.
+/// A bankful of colour, filling y=6 and y=7. The arrows pick between them.
 pub struct Bank {
     pub name: &'static str,
     /// What the arrow that picks this bank lights up as.
@@ -100,79 +114,53 @@ pub struct Bank {
     pub palettes: Vec<PadBinding>,
 }
 
-pub fn banks() -> [Bank; 4] {
+/// Warm tones, cool tones, and the strobing cycles; each with a white.
+pub fn banks() -> [Bank; 3] {
     [
-        Bank { name: "perform", color: Rgbw::WHITE, palettes: perform_colors() },
-        Bank { name: "solid", color: Rgbw::RED, palettes: solid_colors() },
-        Bank { name: "split", color: Rgbw::CYAN, palettes: split_colors() },
+        Bank { name: "warm", color: Rgbw::ORANGE, palettes: warm_colors() },
+        Bank { name: "cool", color: Rgbw::CYAN, palettes: cool_colors() },
         Bank { name: "flash", color: Rgbw::MAGENTA, palettes: flash_colors() },
     ]
 }
 
-// A Cycle runs in half a beat, so the Hydros can only follow one where the two
-// slots are neighbours on the same wheel; anything further would not arrive,
-// and the wheels stay open instead.
+// Every hue is a Toned: what a press means this time is rolled, solid or
+// paired off with one of its partners. The bottom rows park a hydro wheel on
+// the half step between two slots, both filters split across one beam.
 bind! {
 
-perform_colors:
-    (0, 6) => palette!(Solid(Swatch::WHITE)),
-    (1, 6) => palette!(Solid(Swatch::ORANGE)),
-    (2, 6) => palette!(Solid(Swatch::YELLOW)),
-    (3, 6) => palette!(Solid(Swatch::LIME)),
-    (4, 6) => palette!(Solid(Swatch::BLUE)),
-    (5, 6) => palette!(Solid(Swatch::MAGENTA)),
-    (6, 6) => palette!(Cycle([Swatch::LIME.open(), Swatch::WHITE])),
-    (7, 6) => palette!(Cycle([Swatch::RED.open(), Swatch::ORANGE.open(), Swatch::YELLOW.open(), Swatch::LIME.open(), Swatch::BLUE.open(), Swatch::VIOLET.open()])),
+warm_colors:
+    (0, 6) => palette!(Toned { base: Swatch::WHITE,   pals: &[Swatch::RED, Swatch::HOUSE, Swatch::CTO] }),
+    (1, 6) => palette!(Toned { base: Swatch::RED,     pals: &[Swatch::WHITE, Swatch::ORANGE, Swatch::MAGENTA, Swatch::BLUE] }),
+    (2, 6) => palette!(Toned { base: Swatch::ORANGE,  pals: &[Swatch::WHITE, Swatch::RED, Swatch::HOUSE, Swatch::CYAN] }),
+    (3, 6) => palette!(Toned { base: Swatch::HOUSE,   pals: &[Swatch::WHITE, Swatch::ORANGE, Swatch::CTO, Swatch::RED] }),
+    (4, 6) => palette!(Toned { base: Swatch::YELLOW,  pals: &[Swatch::WHITE, Swatch::PEA, Swatch::ORANGE, Swatch::LAVENDER] }),
+    (5, 6) => palette!(Toned { base: Swatch::PINK,    pals: &[Swatch::WHITE, Swatch::MAGENTA, Swatch::LAVENDER, Swatch::CYAN] }),
+    (6, 6) => palette!(Toned { base: Swatch::MAGENTA, pals: &[Swatch::WHITE, Swatch::PINK, Swatch::CYAN, Swatch::BLUE] }),
+    (7, 6) => palette!(Toned { base: Swatch::CTO,     pals: &[Swatch::WHITE, Swatch::HOUSE, Swatch::RED] }),
 
-    (1, 7) => palette!(Split(Swatch::WHITE, Rgbw::RED)),
-    (2, 7) => palette!(Solid(Swatch::PEA)),
-    (3, 7) => palette!(Split(Swatch::WHITE, Rgbw::LIME)),
-    (4, 7) => palette!(Split(Swatch::WHITE, Rgbw::BLUE)),
-    (5, 7) => palette!(Split(Swatch::BLUE, Rgbw::VIOLET)),
-    (6, 7) => palette!(Cycle([Swatch::BLUE.open(), Swatch::WHITE])),
+    (1, 7) => palette!(Solid(Swatch::RED_BLUE)),
+    (2, 7) => palette!(Solid(Swatch::AMBER_ORANGE)),
+    (3, 7) => palette!(Solid(Swatch::PEA_YELLOW)),
 }
 
 bind! {
 
-solid_colors:
-    (0, 6) => palette!(Solid(Swatch::RGBW)),
-    (1, 6) => palette!(Solid(Swatch::RED)),
-    (2, 6) => palette!(Solid(Swatch::HOUSE)),
-    (3, 6) => palette!(Solid(Swatch::MINT)),
-    (4, 6) => palette!(Solid(Swatch::CYAN)),
-    (5, 6) => palette!(Solid(Swatch::VIOLET)),
-    (6, 6) => palette!(Solid(Swatch::PINK)),
-    (7, 6) => palette!(Rainbow),
+cool_colors:
+    (0, 6) => palette!(Toned { base: Swatch::WHITE,    pals: &[Swatch::BLUE, Swatch::CYAN, Swatch::LAVENDER] }),
+    (1, 6) => palette!(Toned { base: Swatch::BLUE,     pals: &[Swatch::WHITE, Swatch::CYAN, Swatch::VIOLET, Swatch::RED] }),
+    (2, 6) => palette!(Toned { base: Swatch::CYAN,     pals: &[Swatch::WHITE, Swatch::BLUE, Swatch::MINT, Swatch::MAGENTA] }),
+    (3, 6) => palette!(Toned { base: Swatch::MINT,     pals: &[Swatch::WHITE, Swatch::CYAN, Swatch::PEA, Swatch::BLUE] }),
+    (4, 6) => palette!(Toned { base: Swatch::LIME,     pals: &[Swatch::WHITE, Swatch::PEA, Swatch::BLUE, Swatch::HOUSE] }),
+    (5, 6) => palette!(Toned { base: Swatch::PEA,      pals: &[Swatch::WHITE, Swatch::LIME, Swatch::YELLOW, Swatch::CYAN] }),
+    (6, 6) => palette!(Toned { base: Swatch::LAVENDER, pals: &[Swatch::WHITE, Swatch::VIOLET, Swatch::PINK, Swatch::YELLOW] }),
+    (7, 6) => palette!(Toned { base: Swatch::VIOLET,   pals: &[Swatch::WHITE, Swatch::MAGENTA, Swatch::BLUE, Swatch::LAVENDER] }),
 
-    (1, 7) => palette!(Solid(Swatch::WHITE)),
-    (2, 7) => palette!(Solid(Swatch::ORANGE)),
-    (3, 7) => palette!(Solid(Swatch::YELLOW)),
-    (4, 7) => palette!(Solid(Swatch::LIME)),
-    (5, 7) => palette!(Solid(Swatch::BLUE)),
-    (6, 7) => palette!(Solid(Swatch::MAGENTA)),
+    (1, 7) => palette!(Solid(Swatch::MAGENTA_CYAN)),
 }
 
-// The movers take the first colour, the pars the second.
-bind! {
-
-split_colors:
-    (0, 6) => palette!(Split(Swatch::WHITE, Rgbw::RED)),
-    (1, 6) => palette!(Split(Swatch::WHITE, Rgbw::LIME)),
-    (2, 6) => palette!(Split(Swatch::WHITE, Rgbw::BLUE)),
-    (3, 6) => palette!(Split(Swatch::RED, Rgbw::WHITE)),
-    (4, 6) => palette!(Split(Swatch::LIME, Rgbw::WHITE)),
-    (5, 6) => palette!(Split(Swatch::BLUE, Rgbw::WHITE)),
-    (6, 6) => palette!(Split(Swatch::BLUE, Rgbw::VIOLET)),
-    (7, 6) => palette!(Split(Swatch::RED, Rgbw::BLUE)),
-
-    (1, 7) => palette!(Split(Swatch::BLUE, Rgbw::LIME)),
-    (2, 7) => palette!(Split(Swatch::LIME, Rgbw::BLUE)),
-    (3, 7) => palette!(Split(Swatch::CYAN, Rgbw::MAGENTA)),
-    (4, 7) => palette!(Split(Swatch::MAGENTA, Rgbw::CYAN)),
-    (5, 7) => palette!(Split(Swatch::ORANGE, Rgbw::CYAN)),
-    (6, 7) => palette!(Split(Swatch::PINK, Rgbw::CYAN)),
-}
-
+// A Cycle whose steps are all neighbours on the same wheel has the Hydros
+// rocking colour and gobo wheels along with it; anything further apart could
+// never arrive, so those cycles run without the Hydros at all.
 bind! {
 
 flash_colors:
@@ -193,15 +181,68 @@ flash_colors:
     (6, 7) => palette!(Cycle([Swatch::RED.open(), Swatch::ORANGE.open(), Swatch::YELLOW.open(), Swatch::LIME.open(), Swatch::BLUE.open(), Swatch::VIOLET.open()])),
 }
 
-/// What Auto picks between, one press of the grid's own looks.
+///////////////////////// LOOK POOLS /////////////////////////
+
+/// The low end: solos, slow pieces and floor work, the level Auto lives at
+/// and Simple's low class draws from.
 #[rustfmt::skip]
-const AUTO_LOOKS: &[Look] = &[
+pub const LOW: &[Look] = &[
+    Look::new(Energy::On, Movement::Out, Pd(4, 1)).masked(Mask::Movers),
+    Look::new(Energy::On, Movement::WaveY, Pd(4, 1)).masked(Mask::Movers),
+    Look::new(Energy::On, Movement::RaisingBeams, Pd(8, 1)).masked(Mask::Movers),
+    Look::new(Energy::On, Movement::UpDownWave, Pd(4, 1)).masked(Mask::Movers),
+    Look::new(Energy::On, Movement::Scissor, Pd(8, 1)).masked(Mask::Movers),
+    Look::new(Energy::On, Movement::Pendulum, Pd(8, 1)).masked(Mask::Movers),
+    Look::new(Energy::On, Movement::Twisting, Pd(4, 1)),
+    Look { texture: Some(T_BREATHE), ..Look::new(Energy::On, Movement::WaveY, Pd(8, 1)).masked(Mask::Movers) },
+    Look { texture: Some(T_GRIND), ..Look::new(Energy::On, Movement::Backstage, Pd(16, 1)).masked(Mask::Hydros) },
+    Look { texture: Some(T_POOLS), ..Look::new(Energy::On, Movement::FloorCircle, Pd(16, 1)).masked(Mask::Hydros) },
+];
+
+/// The middle: swells and pulses, nothing crazy.
+#[rustfmt::skip]
+pub const MID: &[Look] = &[
     Look::new(Energy::Swell { pd: Pd(1, 1) }, Movement::WaveY, Pd(4, 1)),
+    Look::new(Energy::Swell { pd: Pd(1, 2) }, Movement::Square, Pd(4, 1)),
     Look::new(Energy::Beat { pd: Pd(4, 1) }, Movement::RaisingBeams, Pd(4, 1)),
-    Look::new(Energy::Beat { pd: Pd(4, 1) }, Movement::WaveY, Pd(4, 1)),
-    Look::new(Energy::Beat { pd: Pd(4, 1) }, Movement::UpDownWave, Pd(4, 1)),
-    Look::new(Energy::Beat { pd: Pd(4, 1) }, Movement::Whirl, Pd(4, 1)),
-    Look::new(Energy::Beat { pd: Pd(4, 1) }, Movement::Twisting, Pd(4, 1)),
+    Look::new(Energy::Beat { pd: Pd(2, 1) }, Movement::WaveY, Pd(2, 1)),
+    Look::new(Energy::Beat { pd: Pd(2, 1) }, Movement::Whirl, Pd(2, 1)),
+    Look::new(Energy::Beat { pd: Pd(2, 1) }, Movement::Twisting, Pd(2, 1)),
+];
+
+/// The top Simple reaches: light strobes and chases, where the rings hit.
+#[rustfmt::skip]
+pub const HIGH: &[Look] = &[
+    Look::new(Energy::Strobe { pd: Pd(1, 4), duty: 1.0 }, Movement::Square, Pd(2, 1)).ringed(RingPattern::RotateTwelve),
+    Look::new(Energy::Strobe { pd: Pd(1, 8), duty: 1.0 }, Movement::Square, Pd(2, 1)).masked(Mask::Pars),
+    Look::new(Energy::Chase { pd: Pd(1, 2) }, Movement::Twisting, Pd(1, 2)).ringed(RingPattern::RotateSix),
+    Look::new(Energy::Chase { pd: Pd(1, 1) }, Movement::Twisting, Pd(1, 2)).ringed(RingPattern::FlipZigzag),
+    Look::new(Energy::Alternate { pd: Pd(1, 4) }, Movement::CrossSway, Pd(1, 4)).masked(Mask::Movers).ringed(RingPattern::FlipZigzag),
+];
+
+/// Gaps Auto draws between changes, in beats: multiples of eight, mixed so
+/// the swaps drift against the 64-beat measure rather than landing with it.
+const AUTO_STEPS: [usize; 7] = [8, 8, 16, 16, 24, 32, 40];
+
+/// One of Simple's four energy classes: the looks a press draws from, and
+/// how hard it runs.
+pub struct SimpleClass {
+    pub color: Rgbw,
+    /// Multiplier under the panel's simple dim.
+    pub level: f32,
+    pub looks: &'static [Look],
+}
+
+/// Off / low / mid / high, left to right across the bottom of the pad.
+/// Coloured along an ironbow ramp, cold blue up to white-hot yellow.
+#[rustfmt::skip]
+pub const SIMPLE_CLASSES: [SimpleClass; 4] = [
+    // Full off.
+    SimpleClass { color: Rgbw(0.0, 0.35, 1.0, 0.0), level: 1.0,
+        looks: &[Look::new(Energy::Off, Movement::Home, Pd(4, 1))] },
+    SimpleClass { color: Rgbw(0.75, 0.0, 0.95, 0.0), level: 0.7, looks: LOW },
+    SimpleClass { color: Rgbw(1.0, 0.2, 0.0, 0.0), level: 1.0, looks: MID },
+    SimpleClass { color: Rgbw(1.0, 0.8, 0.0, 0.0), level: 1.0, looks: HIGH },
 ];
 
 ///////////////////////// STATE /////////////////////////
@@ -210,18 +251,21 @@ const AUTO_LOOKS: &[Look] = &[
 pub enum Mode {
     /// Full control: bindings, browser, specials.
     Perform,
-    /// Quadrants for randos: chill / hype / new color / new style.
-    Easy,
-    /// Unattended: rerolls itself, presses nudge it along.
+    /// For guest DJs: colours, four energy classes, tap tempo.
+    Simple,
+    /// Unattended: rerolls itself on a drifting schedule, taps retime it.
     Auto,
+    /// The sun runs the rig; the pad is dark.
+    Ambient,
 }
 
 impl Mode {
     pub fn next(self) -> Self {
         match self {
-            Mode::Perform => Mode::Easy,
-            Mode::Easy => Mode::Auto,
-            Mode::Auto => Mode::Perform,
+            Mode::Perform => Mode::Simple,
+            Mode::Simple => Mode::Auto,
+            Mode::Auto => Mode::Ambient,
+            Mode::Ambient => Mode::Perform,
         }
     }
 }
@@ -231,12 +275,32 @@ pub struct State {
     /// Bindings defined just above.
     pub perform: Vec<PadBinding>,
     /// Colour banks, and which of them y=6 and y=7 currently hold.
-    pub banks: [Bank; 4],
+    pub banks: [Bank; 3],
     pub bank: usize,
     pub mode: Mode,
 
+    /// Simple's colour selectors.
+    pub simple: Vec<PadBinding>,
+    /// Simple's master multiplier, set from the panel.
+    pub simple_dim: f32,
+    /// The active energy class, and which of its movements is running.
+    pub simple_class: usize,
+    pub simple_look: usize,
+    /// The phase reset lights only while it is down.
+    pub reset_held: bool,
+
+    /// Ambient ignores the wall clock and uses `ambient_hour` instead.
+    pub ambient_override: bool,
+    pub ambient_hour: f32,
+    /// Pin one ambient look instead of following the sun.
+    pub ambient_force: ambient::Force,
+    /// Dusk's ramp position while pinned.
+    pub ambient_fr: f32,
+
     /// Current color palette.
     pub palette: Box<dyn Palette>,
+    /// Rolls the Toned palettes' pairings; bumped by every palette press.
+    pub palette_seed: usize,
     /// Current style, an index into STYLES.
     pub style: usize,
     /// What the grid last set: energy, movement and how fast it runs.
@@ -256,6 +320,9 @@ pub struct State {
     pub phi: f32,
     /// Bpm multiplier, e.g. 0.5 for half-time, 2.0 for double-time.
     pub phi_mul: f32,
+    /// The square armed for tap recording, purple on the pad. Pressing any
+    /// other square in the tap surface commits the run.
+    pub tap_at: Option<(i8, i8)>,
 
     /// Manual beat
     pub beat: Option<Beat>,
@@ -283,9 +350,13 @@ pub struct State {
 
     /// Style browser, shown while the right arrow is held.
     pub browse: bool,
-    /// Last whole beat Auto rerolled on, and what it picked.
+    /// Last whole beat Auto saw, and what its latest reroll picked.
     pub auto_beat: usize,
     pub auto_look: usize,
+    /// Beat `0..64` the next Auto change fires on, drawn red on the grid.
+    pub auto_next: usize,
+    /// Changes fired so far, for pacing the palette swaps.
+    pub auto_changes: usize,
 }
 
 /// One in / one out on both wash zooms, in seconds.
@@ -301,15 +372,36 @@ const SYNC_MOE: f32 = 0.09;
 /// Gaps at least this long end the run of taps counted for BPM.
 const TAP_GAP_MAX: f32 = 3.0;
 
+/// The tap surface gives up sooner: a recording square this stale un-arms
+/// and its run is discarded.
+const TAP_RUN: f32 = 1.5;
+
 impl State {
     pub fn new() -> Self {
+        // Simple gets both tone pages at once: warm on the top two rows,
+        // cool on the two below them.
+        let mut simple = warm_colors();
+        simple.extend(cool_colors().into_iter().map(|mut b| {
+            b.xy.1 -= 2;
+            b
+        }));
         Self {
             perform: perform(),
             banks: banks(),
             bank: 0,
             mode: Mode::Perform,
+            simple,
+            simple_dim: 0.6,
+            simple_class: 0,
+            simple_look: 0,
+            reset_held: false,
+            ambient_override: false,
+            ambient_hour: 19.0,
+            ambient_force: ambient::Force::Auto,
+            ambient_fr: 0.5,
 
             palette: Box::new(Rainbow),
+            palette_seed: 0,
             style: 1,
             base: Look::new(Energy::Off, Movement::Home, Pd(4, 1)),
             seed: 0,
@@ -320,6 +412,7 @@ impl State {
             bpm_taps: vec![],
             phi: 0.0,
             phi_mul: 1.0,
+            tap_at: None,
             beat: None,
 
             brightness: 1.0,
@@ -336,6 +429,8 @@ impl State {
             browse: false,
             auto_beat: 0,
             auto_look: 0,
+            auto_next: 8,
+            auto_changes: 0,
         }
     }
 
@@ -347,6 +442,10 @@ impl State {
             .chain(&self.perform)
             .find(|b| b.xy == xy)
             .map(|b| &b.op)
+    }
+
+    pub fn simple_binding(&self, xy: (i8, i8)) -> Option<&PadOp> {
+        self.simple.iter().find(|b| b.xy == xy).map(|b| &b.op)
     }
 
     pub fn phi(&self, n: usize, d: usize) -> f32 {
@@ -367,6 +466,7 @@ impl State {
             texture: style.texture,
             beam: self.palette.beam_color(self),
             par: self.palette.par_color(self),
+            colored: false,
             ring_pattern: RingPattern::Off,
             mask: Mask::All,
         };
@@ -382,6 +482,68 @@ impl State {
         let err = self.phi - self.phi.round();
         if (err * (60.0 / self.bpm)).abs() < SYNC_MOE {
             self.phi = self.phi.round();
+        }
+    }
+
+    /// A press on the tap surface: the first square pressed arms and records
+    /// the run, any other square commits it.
+    pub fn tap(&mut self, xy: (i8, i8)) {
+        match self.tap_at {
+            Some(at) if at != xy => self.commit_tap(),
+            _ => {
+                self.tap_at = Some(xy);
+                match self.bpm_taps.last() {
+                    Some(last) if self.t - last < TAP_RUN => {}
+                    _ => self.bpm_taps.clear(),
+                }
+                self.bpm_taps.push(self.t);
+            }
+        }
+    }
+
+    /// Commit the recorded run: the mean interval is the bpm, and this press
+    /// is the downbeat.
+    fn commit_tap(&mut self) {
+        if let Some(&last) = self.bpm_taps.last()
+            && self.t - last < TAP_RUN
+        {
+            self.bpm_taps.push(self.t);
+        }
+        let taps = &self.bpm_taps;
+        if taps.len() >= 2 {
+            let dt = (taps[taps.len() - 1] - taps[0]) / (taps.len() - 1) as f32;
+            if (0.24..=2.0).contains(&dt) {
+                self.bpm = 60.0 / dt;
+                info!("Committed bpm={:.2} from {} taps", self.bpm, taps.len());
+            }
+        }
+        self.bpm_taps.clear();
+        self.tap_at = None;
+        self.phi = 0.0;
+    }
+
+    /// Whether a run of taps is being recorded.
+    pub fn tapping(&self) -> bool {
+        self.tap_at.is_some()
+            || self.bpm_taps.last().is_some_and(|last| self.t - last < TAP_RUN)
+    }
+
+    /// Switch modes, landing somewhere sane rather than on whatever the last
+    /// mode left running: Simple opens dark, Auto starts its measure on one
+    /// of its own low looks.
+    pub fn set_mode(&mut self, mode: Mode) {
+        self.mode = mode;
+        match mode {
+            Mode::Simple => reroll(self, 0),
+            Mode::Auto => {
+                self.phi = 0.0;
+                self.auto_beat = 0;
+                let mut rng = ThreadRng::default();
+                self.auto_look = rng.gen_range(0..LOW.len());
+                self.base = LOW[self.auto_look];
+                schedule(self, &mut rng);
+            }
+            _ => {}
         }
     }
 
@@ -440,7 +602,18 @@ pub fn tick(mut s: ResMut<State>, time: Res<Time>) {
     let dt = time.delta_secs();
 
     s.t += dt;
-    s.phi = (s.phi + (s.bpm / 60.0) * s.phi_mul * dt) % 64.0;
+    // Ambient keeps its own slow clock; phase there is decoration.
+    let bpm = match s.mode {
+        Mode::Ambient => ambient::BPM,
+        _ => s.bpm,
+    };
+    s.phi = (s.phi + (bpm / 60.0) * s.phi_mul * dt) % 64.0;
+
+    // An abandoned recording clears itself.
+    if s.tap_at.is_some() && s.bpm_taps.last().is_none_or(|last| s.t - last >= TAP_RUN) {
+        s.tap_at = None;
+        s.bpm_taps.clear();
+    }
 
     // Expire one-shots
     let (t, bpm) = (s.t, s.bpm);
@@ -449,26 +622,118 @@ pub fn tick(mut s: ResMut<State>, time: Res<Time>) {
         _ => true,
     });
 
-    // Auto: a new look every 16 beats, a new colour with it every 32
+    // Auto: fire the booked change, then book the next.
     if let Mode::Auto = s.mode {
         let beat = s.phi as usize;
         if beat != s.auto_beat {
             s.auto_beat = beat;
-            if beat % 16 == 0 {
+            if beat == s.auto_next {
                 let mut rng = ThreadRng::default();
                 s.seed += 1;
-                // Never the one already running, or the reroll shows nothing.
-                let mut i = rng.gen_range(0..AUTO_LOOKS.len());
+                // Always another low look: little switches, never a jarring
+                // jump in energy. Never the one already running.
+                let mut i = rng.gen_range(0..LOW.len());
                 if i == s.auto_look {
-                    i = (i + 1) % AUTO_LOOKS.len();
+                    i = (i + 1) % LOW.len();
                 }
                 s.auto_look = i;
-                s.base = AUTO_LOOKS[i];
-                if beat % 32 == 0 {
+                s.base = LOW[i];
+                s.auto_changes += 1;
+                if s.auto_changes % 3 == 0 {
                     s.palette = random_palette(&mut rng);
                 }
+                schedule(s, &mut rng);
             }
         }
+    }
+}
+
+/// Book the next Auto change off the current beat.
+fn schedule(s: &mut State, rng: &mut ThreadRng) {
+    s.auto_next = (s.auto_beat + AUTO_STEPS[rng.gen_range(0..AUTO_STEPS.len())]) % 64;
+}
+
+/// A class press in Simple: a random look out of the class's pool, never
+/// repeating the one already running.
+fn reroll(s: &mut State, class: usize) {
+    let c = &SIMPLE_CLASSES[class];
+    let mut rng = ThreadRng::default();
+    let mut m = rng.gen_range(0..c.looks.len());
+    if class == s.simple_class && m == s.simple_look && c.looks.len() > 1 {
+        m = (m + 1) % c.looks.len();
+    }
+    s.simple_class = class;
+    s.simple_look = m;
+    s.seed += 1;
+    s.base = c.looks[m];
+}
+
+///////////////////////// SPICE /////////////////////////
+
+/// How the six pars share a look's energy: same period, dealt differently.
+#[derive(Clone, Copy, PartialEq)]
+enum ParSpice {
+    /// The flat field.
+    Together,
+    /// The pattern walks across the row.
+    Wave,
+    /// Evens against odds.
+    Alternate,
+    /// The middle leads, the ends trail.
+    Ends,
+    /// A random few carry it; the rest stay dark.
+    Sparse,
+}
+
+/// Fine detail rerolled with the seed, on top of whatever look a button
+/// names: a touch of gobo in the haze, a hair of zoom, the spin hurried or
+/// turned round, the pars dealt a new arrangement. Seasoning only — nothing
+/// here changes the look's energy, so a button still means what it meant.
+struct Spice {
+    /// Onto an open gate under a calm look; usually stays open itself.
+    gobo: Gobo,
+    gobo_rot: u8,
+    /// Extra width for looks holding the thin-beam baseline.
+    zoom: f32,
+    /// Over the look's own prism rotation.
+    prism_mul: f32,
+    pars: ParSpice,
+    /// Which pars a Sparse deal lights.
+    par_gate: [f32; 6],
+    par_zoom: f32,
+}
+
+fn spice(seed: usize) -> Spice {
+    use rand::prelude::*;
+    let mut rng = StdRng::seed_from_u64(seed as u64);
+    let mut par_gate = [0.0; 6];
+    for g in &mut par_gate {
+        *g = rng.gen_bool(0.4) as u8 as f32;
+    }
+    if par_gate.iter().all(|g| *g == 0.0) {
+        (par_gate[2], par_gate[3]) = (1.0, 1.0);
+    }
+    Spice {
+        // Dots or the flower when it lands: the two that still read in the
+        // beam haze on an upward beam.
+        gobo: [Gobo::Open, Gobo::Open, Gobo::Open, Gobo::Dots, Gobo::Flower]
+            [rng.gen_range(0..5)],
+        // 17-40 deg/s, either way round.
+        gobo_rot: [187, 188, 199, 200][rng.gen_range(0..4)],
+        zoom: [0.0, 0.0, 0.0, 0.1, 0.2][rng.gen_range(0..5)],
+        prism_mul: [1.0, 1.0, 0.6, 1.6, -1.0][rng.gen_range(0..5)],
+        pars: [
+            ParSpice::Together,
+            ParSpice::Together,
+            ParSpice::Wave,
+            ParSpice::Wave,
+            ParSpice::Alternate,
+            ParSpice::Ends,
+            ParSpice::Sparse,
+            ParSpice::Sparse,
+        ][rng.gen_range(0..8)],
+        par_gate,
+        par_zoom: [0.0, 0.0, 0.0, 0.5, 1.0][rng.gen_range(0..5)],
     }
 }
 
@@ -487,13 +752,51 @@ pub fn render_lights(
     mut universe: ResMut<Universe>,
 ) {
     let s: &State = &s;
+    if let Mode::Ambient = s.mode {
+        ambient::render(
+            s,
+            &mut l,
+            &movers,
+            &patch,
+            &blackout,
+            &home,
+            &trim,
+            time.delta_secs(),
+            &mut wheels,
+            &mut universe,
+        );
+        return;
+    }
+
     let look = s.look();
     let pd = look.pd();
 
-    // Left column flashes the pars, right column the movers.
-    let beat0 = s.beat_fr0().unwrap_or(1.0);
-    let beat1 = s.beat_fr1().unwrap_or(1.0);
-    let (movers_mask, pars_mask) = (look.mask.movers(), look.mask.pars());
+    // Simple runs everything under its own ceiling.
+    let master = s.brightness
+        * match s.mode {
+            Mode::Simple => s.simple_dim * SIMPLE_CLASSES[s.simple_class].level,
+            _ => 1.0,
+        };
+
+    // Left column flashes the pars, right column the movers; only Perform has
+    // the buttons, so a beat left behind never dims the other modes.
+    let (beat0, beat1) = match s.mode {
+        Mode::Perform => (s.beat_fr0().unwrap_or(1.0), s.beat_fr1().unwrap_or(1.0)),
+        _ => (1.0, 1.0),
+    };
+    let (outcasts_mask, hydros_mask, pars_mask) =
+        (look.mask.outcasts(), look.mask.hydros(), look.mask.pars());
+
+    // Spice stays off anything hard: a strobe is exactly its button.
+    let spice = spice(s.seed);
+    let calm = !matches!(
+        look.energy,
+        Energy::Strobe { .. } | Energy::Chase { .. } | Energy::Alternate { .. }
+    );
+    let widen = match calm && look.texture.zoom == 0.0 && look.texture.breathe == 0.0 {
+        true => spice.zoom,
+        false => 0.0,
+    };
 
     l.reset();
 
@@ -504,11 +807,24 @@ pub fn render_lights(
         let (pitch, yaw) = look.angles(s, pd, i, fr, &movers.at[i], rest);
         o.pitch = pitch;
         o.yaw = yaw;
-        o.zoom = s.outcast_zoom;
-        o.ring_pattern = RingPattern::ALL[s.ring];
+        o.zoom = (look.zoom_at(s, pd, fr, rest) + widen).max(s.outcast_zoom);
+        // The look's ring animation, until one is picked by hand; it runs
+        // busy under a strobe and crawls under anything calm.
+        o.ring_pattern = match s.ring {
+            0 => look.ring_pattern,
+            _ => RingPattern::ALL[s.ring],
+        };
+        o.ring_pattern_speed = match calm {
+            true => 0.2,
+            false => 0.85,
+        };
 
-        let env = look.energy.env(s, fr) * look.movement.mask(s, pd, i, fr) * movers_mask;
-        let col = look.beam.rgbw * env * s.brightness * beat1 * trim.global;
+        let beam = match look.colored {
+            true => look.beam,
+            false => s.palette.beam_color_at(s, i),
+        };
+        let env = look.energy.env(s, fr) * look.movement.mask(s, pd, i, fr) * outcasts_mask;
+        let col = beam.rgbw * env * master * beat1 * trim.global;
         match look.texture.ring {
             RingMode::Both => {
                 o.ring = col * trim.ring;
@@ -528,32 +844,79 @@ pub fn render_lights(
 
         // No mixing: the wheels carry the colour and the brightest component
         // of what the palette asked for is all the dimmer can say about it.
-        let env = look.energy.env(s, fr) * look.movement.mask(s, pd, i, fr) * movers_mask;
-        let Swatch { rgbw: Rgbw(r, g, b, w), one, two, spot } = look.beam;
+        let beam = match look.colored {
+            true => look.beam,
+            false => s.palette.beam_color_at(s, i),
+        };
+        let env = look.energy.env(s, fr) * look.movement.mask(s, pd, i, fr) * hydros_mask;
+        let Swatch { rgbw: Rgbw(r, g, b, w), one, two, spot } = beam;
         let lit = r.max(g).max(b).max(w) * spot as u8 as f32;
-        h.alpha = lit * env * s.brightness * beat1 * trim.global * trim.hydro;
+        h.alpha = lit * env * master * beat1 * trim.global * trim.hydro;
         h.color = one;
         h.color2 = two;
         // Hold the beam down while a wheel crosses to a slot it is not already
         // beside, since the fixture will not blank itself for it.
         h.color_mask = true;
-        h.gobo = look.texture.gobo;
+        // An open gate under a calm look takes the spice's texture, the one
+        // detail the grid cannot spare buttons for. Under a wheel-rocking
+        // cycle it rocks the gobo wheel instead, a slot out and back at the
+        // same rate, so the strobe cuts into the texture too.
+        match (look.texture.gobo, s.palette.wheel_strobing(), calm) {
+            (Gobo::Open, true, _) => {
+                h.gobo = match s.pd(Pd(1, 2)).ramp(1.0) < 0.5 {
+                    true => Gobo::Open,
+                    false => Gobo::Dots,
+                };
+                h.gobo_rot = 0;
+            }
+            (Gobo::Open, _, true) => {
+                h.gobo = spice.gobo;
+                h.gobo_rot = spice.gobo_rot;
+            }
+            (gobo, ..) => {
+                h.gobo = gobo;
+                h.gobo_rot = look.texture.gobo_rot;
+            }
+        }
         h.gobo_shake = look.texture.gobo_shake;
-        h.gobo_rot = look.texture.gobo_rot;
-        h.prism = s.prism;
+        // The look's optics, with the control surface on top of them: its
+        // buttons force a prism, its faders only ever widen or spin further.
+        h.prism = match s.prism {
+            Prism::Off => look.texture.prism,
+            prism => prism,
+        };
         // A mover hung the other way round has to spin its prism the other way
         // for the pair to read as one gesture.
-        h.prism_rot = s.prism_rot * rest.sign().1;
+        h.prism_rot = (look.texture.prism_rot * spice.prism_mul + s.prism_rot) * rest.sign().1;
         h.focus = look.texture.focus;
-        h.zoom = s.hydro_zoom;
+        h.zoom = (look.zoom_at(s, pd, fr, rest) + widen).max(s.hydro_zoom);
         h.frost = look.texture.frost;
     }
 
     for (i, p) in l.pars.iter_mut().enumerate() {
         let fr = i as f32 / 6.0;
-        let env = look.energy.env(s, fr) * pars_mask;
-        p.color = look.par * env * s.brightness * beat0 * trim.global * trim.colorado;
-        p.zoom = s.colorado_zoom;
+        let par = match look.colored {
+            true => look.par,
+            false => s.palette.par_color_at(s, i),
+        };
+        // The spice's arrangement: the look's own energy and period, dealt
+        // across the six out of step, in halves, or onto a sparse few.
+        let (offset, gain) = match spice.pars {
+            ParSpice::Together => (0.0, 1.0),
+            ParSpice::Wave => (fr * 0.75, 1.0),
+            ParSpice::Alternate => ((i % 2) as f32 * 0.5, 1.0),
+            ParSpice::Ends => ((i as f32 - 2.5).abs() * 0.2, 1.0),
+            ParSpice::Sparse => (fr * 0.5, spice.par_gate[i]),
+        };
+        let env = match look.energy {
+            // On has no beat to deal, so the arrangement rides a slow swell.
+            Energy::On if spice.pars != ParSpice::Together => {
+                gain * s.pd(Pd(8, 1)).phase(1.0, offset * 2.0).fsin(1.0).lerp(0.15..1.0)
+            }
+            e => gain * e.env_at(s, fr, offset),
+        };
+        p.color = par * (env * pars_mask) * master * beat0 * trim.global * trim.colorado;
+        p.zoom = spice.par_zoom.max(s.colorado_zoom);
     }
 
     if s.zoom_wave {
@@ -581,16 +944,17 @@ pub fn on_pad(mut s: ResMut<State>, mut pad: ResMut<Pad>) {
 
     for input in pad.recv() {
         match input {
-            // Colour banks
-            Input::Up(true) => s.bank = 0,
+            // Colour banks; in Auto the top-left key is the phase reset.
+            // Warm, cool, then the cycles on both lower arrows.
+            Input::Up(true) => match s.mode {
+                Mode::Auto => s.phi = 0.0,
+                _ => s.bank = 0,
+            },
             Input::Down(true) => s.bank = 1,
             Input::Left(true) => s.bank = 2,
-            Input::Right(true) => s.bank = 3,
-            // Toggle the pad guide
-            Input::Capture(true) => {
-                s.debug = !s.debug;
-                pad.send(Output::Clear);
-            }
+            Input::Right(true) => s.bank = 2,
+            // Cycle Perform -> Simple -> Auto -> Ambient
+            Input::Capture(true) => s.set_mode(s.mode.next()),
             Input::Session(true) => s.zoom_wave = !s.zoom_wave,
             // Normal / double / half time, which the next grid press drops
             Input::Note(true) => {
@@ -600,17 +964,23 @@ pub fn on_pad(mut s: ResMut<State>, mut pad: ResMut<Pad>) {
                     _ => 2.0,
                 }
             }
-            // Cycle Perform -> Easy -> Auto
-            Input::Custom(true) => s.mode = s.mode.next(),
+            // Toggle the pad guide
+            Input::Custom(true) => {
+                s.debug = !s.debug;
+                pad.send(Output::Clear);
+            }
             // Pop hold specials
             Input::Release(i) => {
                 let Coord(x, y) = i.into();
                 s.specials.retain(|a| !(matches!(a.special.fire, Fire::Hold) && a.xy == (x, y)));
+                if (6..=7).contains(&x) && (2..=3).contains(&y) {
+                    s.reset_held = false;
+                }
             }
             _ => {}
         }
 
-        // Right column: brightness
+        // Right column: brightness, except Auto jumps to that measure row.
         if let Some(level) = match input {
             Input::Record(true) => Some(0),
             Input::Solo(true) => Some(1),
@@ -622,7 +992,19 @@ pub fn on_pad(mut s: ResMut<State>, mut pad: ResMut<Pad>) {
             Input::Volume(true) => Some(7),
             _ => None,
         } {
-            s.brightness = LEVELS[level];
+            match s.mode {
+                // Place the booked change on that row: at its start, or on a
+                // second press its second 4-beat bar.
+                Mode::Auto => {
+                    let start = (7 - level) * 8;
+                    s.auto_next = match s.auto_next == start {
+                        true => start + 4,
+                        false => start,
+                    };
+                }
+                Mode::Ambient => {}
+                _ => s.brightness = LEVELS[level],
+            }
         }
 
         let Some((x, y)) = input.xy() else { continue };
@@ -669,9 +1051,15 @@ pub fn on_pad(mut s: ResMut<State>, mut pad: ResMut<Pad>) {
                     }
                     PadOp::Look(look) => {
                         s.base = look;
+                        // Fresh spice with every press, repeat or not.
+                        s.seed += 1;
                         s.resync();
                     }
-                    PadOp::Palette(palette) => s.palette = palette,
+                    PadOp::Palette(palette) => {
+                        s.palette = palette;
+                        // Reroll the tone's pairing; pressing again browses.
+                        s.palette_seed += 1;
+                    }
                     PadOp::Special(sp) => {
                         let latched =
                             matches!(sp.fire, Fire::Latch) && s.specials.iter().any(|a| a.xy == (x, y));
@@ -701,36 +1089,40 @@ pub fn on_pad(mut s: ResMut<State>, mut pad: ResMut<Pad>) {
                     }
                 }
             }
-            // Movement is left to the style, so the quadrant that rerolls it
-            // has something to change.
-            Mode::Easy => {
-                let mut rng = ThreadRng::default();
-                let energy = |e| Look { energy: Some(e), ..Look::NONE };
-                match (x < 4, y < 4) {
-                    (true, true) => s.base = energy(Energy::Beat { pd: Pd(2, 1) }),
-                    (false, true) => s.base = energy(Energy::Beat { pd: Pd(1, 1) }),
-                    (true, false) => s.palette = random_palette(&mut rng),
-                    (false, false) => s.style = rng.gen_range(0..STYLES.len()),
+            Mode::Simple => {
+                if let Some(PadOp::Palette(palette)) = s.simple_binding((x, y)).cloned() {
+                    s.palette = palette;
+                    s.palette_seed += 1;
+                } else if y < 2 {
+                    reroll(s, (x / 2) as usize);
+                    s.resync();
+                } else if (2..=3).contains(&y) && (0..=3).contains(&x) {
+                    s.tap((x, y));
+                } else if (2..=3).contains(&y) && (6..=7).contains(&x) {
+                    s.reset_held = true;
+                    s.phi = 0.0;
                 }
-                s.seed += 1;
-                s.resync();
             }
-            // Any press = a nudge
-            Mode::Auto => {
-                s.seed += 1;
-                s.resync();
-            }
+            // The whole grid is the tap
+            Mode::Auto => s.tap((x, y)),
+            Mode::Ambient => {}
         }
     }
 }
 
 ///////////////////////// PAD OUTPUT /////////////////////////
 
-pub fn render_pad(s: Res<State>, mut pad: ResMut<Pad>) {
+pub fn render_pad(s: Res<State>, mut pad: ResMut<Pad>, mut was: Local<Option<Mode>>) {
     use lib::midi::device::launchpad_x::Output;
     use lib::midi::device::launchpad_x::types::*;
 
     let s: &State = &s;
+
+    // A mode leaves nothing behind for the next one's layout.
+    if *was != Some(s.mode) {
+        *was = Some(s.mode);
+        pad.send(Output::Clear);
+    }
 
     let mut batch: Vec<(Pos, Color)> = vec![];
     let rgb = |Rgb(r, g, b): Rgb| Color::Rgb(r, g, b);
@@ -757,13 +1149,19 @@ pub fn render_pad(s: Res<State>, mut pad: ResMut<Pad>) {
                             set(*x, *y, Rgbw::WHITE * fr);
                         }
                         // Each button beats at the rate it would drive the rig
-                        // at, in the colour it would use.
+                        // at, in the colour it would use; one that leaves
+                        // families dark sits dimmer, so the low end reads low.
                         PadOp::Look(look) => {
                             let col = look.color.map_or(beam, |c| c.rgbw);
                             let env = look.energy.map_or(0.0, |e| e.env(s, 0.0));
-                            set(*x, *y, col * env.max(0.15));
+                            let breadth = match look.mask {
+                                Some(Mask::Hydros) => 0.4,
+                                Some(Mask::Movers | Mask::Pars) => 0.7,
+                                _ => 1.0,
+                            };
+                            set(*x, *y, col * (env.max(0.15) * breadth));
                         }
-                        PadOp::Palette(palette) => set(*x, *y, palette.beam_color(s).rgbw),
+                        PadOp::Palette(palette) => set(*x, *y, palette.pad_color(s)),
                         PadOp::Special(sp) => {
                             let active = s.specials.iter().any(|a| a.xy == (*x, *y));
                             set(*x, *y, sp.color * if active { 1.0 } else { 0.2 });
@@ -780,79 +1178,171 @@ pub fn render_pad(s: Res<State>, mut pad: ResMut<Pad>) {
                     set(7, i, col);
                 }
             }
-            Mode::Easy => {
-                let look = s.look();
-                for x in 0..8 {
-                    for y in 0..8 {
-                        let col = match (x < 4, y < 4) {
-                            (true, true) => Rgbw::BLUE * s.pd(Pd(2, 1)).ramp(1.0).inv(),
-                            (false, true) => Rgbw::RED * s.pd(Pd(1, 1)).ramp(1.0).inv(),
-                            (true, false) => look.beam.rgbw,
-                            (false, false) => STYLES[s.style].color,
-                        };
-                        set(x, y, col * 0.5);
-                    }
-                }
-            }
-            Mode::Auto => {
-                let look = s.look();
-                let env = look.energy.env(s, 0.0);
-                for x in 0..8 {
-                    for y in 0..8 {
-                        set(x, y, look.beam.rgbw * env);
-                    }
-                }
-            }
+            Mode::Simple => simple_pad(s, &mut set),
+            Mode::Auto => auto_pad(s, &mut set),
+            // Dark: the show is the sun's.
+            Mode::Ambient => {}
         }
     }
 
-    // Top row: the four arrows are the colour banks
-    let lit = |on: bool, col: Rgbw| if on { col } else { Rgbw::BLACK };
-    for (i, bank) in s.banks.iter().enumerate() {
-        set(i as i8, 8, bank.color * if i == s.bank { 1.0 } else { 0.15 });
-    }
-    set(4, 8, lit(s.zoom_wave, Rgbw::VIOLET));
-    set(
-        5,
-        8,
-        match s.phi_mul {
-            m if m > 1.0 => Rgbw::VIOLET,
-            m if m < 1.0 => Rgbw::CYAN,
-            _ => Rgbw::WHITE * 0.15,
-        },
-    );
-    set(
-        6,
-        8,
-        match s.mode {
-            Mode::Perform => Rgbw::WHITE,
-            Mode::Easy => Rgbw::CYAN,
-            Mode::Auto => Rgbw::MAGENTA,
-        },
-    );
-    set(7, 8, lit(s.debug, Rgbw::WHITE));
-
-    // Right column: brightness, lit up to the level in use
-    for (y, level) in LEVELS.iter().enumerate() {
-        set(8, y as i8, lit(*level <= s.brightness, Rgbw::WHITE * level.max(0.15)));
-    }
-
-    // Beat indicator
-    set(
-        8,
-        8,
-        match s.pd(Pd(1, 1)).bsquare(1.0, 0.1) {
-            true => match s.pd(Pd(4, 1)).bsquare(1.0, 0.2) {
-                // White on the first beat of each bar
-                true => Rgbw::WHITE,
-                // The palette's colour on every other beat
-                false => s.palette.beam_color(s).rgbw,
+    if let Mode::Perform = s.mode {
+        // Top row: the four arrows are the colour banks
+        let lit = |on: bool, col: Rgbw| if on { col } else { Rgbw::BLACK };
+        for (i, bank) in s.banks.iter().enumerate() {
+            set(i as i8, 8, bank.color * if i == s.bank { 1.0 } else { 0.15 });
+        }
+        set(4, 8, lit(s.zoom_wave, Rgbw::VIOLET));
+        set(
+            5,
+            8,
+            match s.phi_mul {
+                m if m > 1.0 => Rgbw::VIOLET,
+                m if m < 1.0 => Rgbw::CYAN,
+                _ => Rgbw::WHITE * 0.15,
             },
-            false => Rgbw::BLACK,
-        },
-    );
+        );
+        set(6, 8, lit(s.debug, Rgbw::WHITE));
+        set(7, 8, mode_color(s.mode));
+
+        // Right column: brightness, lit up to the level in use
+        for (y, level) in LEVELS.iter().enumerate() {
+            set(8, y as i8, lit(*level <= s.brightness, Rgbw::WHITE * level.max(0.15)));
+        }
+
+        // Beat indicator
+        set(
+            8,
+            8,
+            match s.pd(Pd(1, 1)).bsquare(1.0, 0.1) {
+                true => match s.pd(Pd(4, 1)).bsquare(1.0, 0.2) {
+                    // White on the first beat of each bar
+                    true => Rgbw::WHITE,
+                    // The palette's colour on every other beat
+                    false => s.palette.beam_color(s).rgbw,
+                },
+                false => Rgbw::BLACK,
+            },
+        );
+    } else if s.mode != Mode::Ambient {
+        // Just the mode key, so the way back out is findable.
+        set(7, 8, mode_color(s.mode));
+    }
 
     pad.send(Output::Batch(batch));
+}
+
+fn mode_color(mode: Mode) -> Rgbw {
+    match mode {
+        Mode::Perform => Rgbw::WHITE,
+        Mode::Simple => Rgbw::CYAN,
+        Mode::Auto => Rgbw::MAGENTA,
+        Mode::Ambient => Rgbw::BLACK,
+    }
+}
+
+/// Simple's guide: colours up top, the energy classes across the bottom, the
+/// tap bar and phase reset between them.
+fn simple_pad(s: &State, set: &mut impl FnMut(i8, i8, Rgbw)) {
+    for PadBinding { xy: (x, y), op } in &s.simple {
+        if let PadOp::Palette(palette) = op {
+            set(*x, *y, palette.pad_color(s));
+        }
+    }
+
+    // Each class flashes at the rate it stands for, whatever is running:
+    // off sits dim, then slow pulse, quarter notes, strobe. The active one
+    // is full on.
+    for (i, class) in SIMPLE_CLASSES.iter().enumerate() {
+        let env = match i {
+            0 => 0.35,
+            1 => s.pd(Pd(4, 1)).fsin(1.0).lerp(0.25..1.0),
+            2 => s.pd(Pd(1, 1)).inv().in_quad().lerp(0.2..1.0),
+            _ => s.pd(Pd(1, 4)).square(1.0, 0.5).lerp(0.3..1.0),
+        };
+        let fr = env
+            * match i == s.simple_class {
+                true => 1.0,
+                false => 0.3,
+            };
+        for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+            set(i as i8 * 2 + dx, dy, class.color * fr);
+        }
+    }
+
+    tap_bar(s, set, 0, 2, 6, 2);
+}
+
+/// The tap bar, 4x2 at `(x0, y0)`: dim white with a solid white column
+/// walking the four beats of the bar; the square being recorded on holds dim
+/// violet and flashes bright with each tap. The phase reset, `rw` wide at
+/// `rx`, sits dim so it is findable and lights full while held.
+fn tap_bar(s: &State, set: &mut impl FnMut(i8, i8, Rgbw), x0: i8, y0: i8, rx: i8, rw: i8) {
+    let beat = s.phi as usize % 4;
+    for i in 0..4i8 {
+        for y in [y0, y0 + 1] {
+            let x = x0 + i;
+            let col = match s.tap_at == Some((x, y)) {
+                true => tap_glow(s),
+                false => match i as usize == beat {
+                    true => Rgbw::WHITE,
+                    false => Rgbw::WHITE * 0.08,
+                },
+            };
+            set(x, y, col);
+        }
+    }
+
+    let held = match s.reset_held {
+        true => Rgbw::WHITE,
+        false => Rgbw::WHITE * 0.1,
+    };
+    for dx in 0..rw {
+        set(rx + dx, y0, held);
+        set(rx + dx, y0 + 1, held);
+    }
+}
+
+/// The square being recorded on: dim violet, flashing bright with each tap.
+fn tap_glow(s: &State) -> Rgbw {
+    let flash = s.bpm_taps.last().map_or(0.0, |last| (1.0 - (s.t - last) / 0.15).max(0.0));
+    Rgbw::VIOLET * flash.lerp(0.35..1.0)
+}
+
+/// Auto's guide: the 64-beat measure across the whole pad, top left to
+/// bottom right, a crosshair on the current beat and the booked change in
+/// red. The grid is the tap surface, the right column places the change on
+/// its row, and the top-left key resets the phase.
+fn auto_pad(s: &State, set: &mut impl FnMut(i8, i8, Rgbw)) {
+    let beat = s.phi as usize % 64;
+    for b in 0..64usize {
+        let (x, y) = ((b % 8) as i8, 7 - (b / 8) as i8);
+        let col = match () {
+            _ if s.tap_at == Some((x, y)) => tap_glow(s),
+            // The booked change, beating red wherever the cursor is.
+            _ if b == s.auto_next => Rgbw::RED * s.phi.fract().inv().lerp(0.4..1.0),
+            _ if b == beat => Rgbw::WHITE,
+            // Crosshair: the current row and the current dot's column.
+            _ if b / 8 == beat / 8 => Rgbw::WHITE * 0.25,
+            _ if b % 8 == beat % 8 => Rgbw::WHITE * 0.25,
+            _ => Rgbw::WHITE * 0.06,
+        };
+        set(x, y, col);
+    }
+
+    // Right column: place the change on that row; the row holding it reads
+    // red, the playing row white.
+    for y in 0..8i8 {
+        let row = (7 - y) as usize;
+        let col = match () {
+            _ if s.auto_next / 8 == row => Rgbw::RED * 0.5,
+            _ if beat / 8 == row => Rgbw::WHITE * 0.25,
+            _ => Rgbw::WHITE * 0.08,
+        };
+        set(8, y, col);
+    }
+
+    // Top left: phase reset.
+    set(0, 8, Rgbw::WHITE * 0.3);
 }
 
 ///////////////////////// PAD VISUALISER /////////////////////////
