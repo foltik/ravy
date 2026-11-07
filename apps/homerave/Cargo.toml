@@ -1,0 +1,15 @@
+[package]
+name = "homerave"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "homerave"
+path = "src/homerave.rs"
+
+[dependencies]
+lib.workspace = true
+bevy.workspace = true
+argh.workspace = true
+rand.workspace = true
+itertools.workspace = true

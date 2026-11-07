@@ -70,27 +70,27 @@ impl Personal {
 
 impl DmxUniverse for Personal {
     fn send(&self, e131: &mut E131) {
-        let mut dmx = [0u8; 205];
+        let mut dmx = [0u8; 204];
 
         for (i, par) in self.pars.iter().enumerate() {
-            par.encode(&mut dmx[1 + 8 * i..]);
+            par.encode(&mut dmx[8 * i..]);
         }
         for (i, beam) in self.beams.iter().enumerate() {
             let beam = Beam { alpha: beam.alpha * 0.5, ..beam.clone() };
-            beam.encode(&mut dmx[81 + 15 * i..]);
+            beam.encode(&mut dmx[80 + 15 * i..]);
         }
         for (i, bar) in self.bars.iter().enumerate() {
             if bar.color.0 == bar.color.1 && bar.color.1 == bar.color.2 {
-                Bar { alpha: 0.0, color: Rgbw::BLACK }.encode(&mut dmx[149 + 7 * i..]);
+                Bar { alpha: 0.0, color: Rgbw::BLACK }.encode(&mut dmx[148 + 7 * i..]);
             } else {
-                bar.encode(&mut dmx[149 + 7 * i..]);
+                bar.encode(&mut dmx[148 + 7 * i..]);
             }
         }
         for (i, spider) in self.spiders.iter().enumerate() {
-            spider.encode(&mut dmx[175 + 15 * i..]);
+            spider.encode(&mut dmx[174 + 15 * i..]);
         }
-        self.strobe.encode(&mut dmx[142..]);
-        self.laser.encode(&mut dmx[164..]);
+        self.strobe.encode(&mut dmx[141..]);
+        self.laser.encode(&mut dmx[163..]);
 
         e131.send(&dmx);
     }

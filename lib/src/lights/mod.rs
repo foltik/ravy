@@ -49,6 +49,14 @@ impl Plugin for LightsPlugin {
             Path::new("fixtures/BarFixture.glb"),
             &include_bytes!("../../assets/fixtures/BarFixture.glb")[..],
         );
+        self.models.insert_asset(
+            Path::new("fixtures/ParFixture.glb"),
+            &include_bytes!("../../assets/fixtures/ParFixture.glb")[..],
+        );
+        self.models.insert_asset(
+            Path::new("fixtures/StrobeFixture.glb"),
+            &include_bytes!("../../assets/fixtures/StrobeFixture.glb")[..],
+        );
 
         app.add_systems(
             PreUpdate,

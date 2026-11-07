@@ -1,3 +1,6 @@
+use std::time::Duration;
+
+use bevy::app::ScheduleRunnerPlugin;
 use bevy::asset::io::AssetSourceBuilder;
 use bevy::asset::io::memory::{Dir, MemoryAssetReader};
 use bevy::window::WindowMode;
@@ -10,24 +13,52 @@ pub struct RavyPlugin {
     pub trace: bool,
 }
 
+/// The log filter: lib is ours too, so it speaks at the app's level, not a
+/// dep's.
+fn log_filter(module: &str, debug: bool, trace: bool) -> String {
+    #[rustfmt::skip]
+    let (app_log_level, deps_log_level) = match (debug, trace) {
+        (_, true) => ("trace", "debug"), // -V, --trace
+        (true, _) => ("debug", "info"),  // -v, --debug
+        (_, _)    => ("info",  "warn"),  // default
+    };
+
+    let quiet = if debug || trace {
+        ""
+    } else {
+        // Benign startup noise: no XSETTINGS daemon, swapchain rebuilds while
+        // the window settles, no @invariant in bevy's mesh shader under the
+        // depth prepass.
+        ",winit::platform_impl::linux::x11::xdisplay=error,bevy_render::view::window=error,wgpu_core::validation=error"
+    };
+    format!("{deps_log_level}{quiet},lib={app_log_level},{module}={app_log_level}")
+}
+
+/// The show without a window: no render, no sim, no panels. For a box with
+/// nothing but the control surfaces and the wire plugged into it. The apps
+/// own the rest: anything of theirs that reads the sim or draws a panel is
+/// theirs to leave out.
+pub struct RavyHeadlessPlugin {
+    pub module: &'static str,
+    pub debug: bool,
+    pub trace: bool,
+}
+
+/// How often the headless loop ticks: what a windowed app gets from vsync.
+const HEADLESS_TICK: Duration = Duration::from_micros(1_000_000 / 60);
+
+impl Plugin for RavyHeadlessPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(HEADLESS_TICK)))
+            .add_plugins(bevy::log::LogPlugin {
+                filter: log_filter(self.module, self.debug, self.trace),
+                ..default()
+            });
+    }
+}
+
 impl Plugin for RavyPlugin {
     fn build(&self, app: &mut App) {
-        #[rustfmt::skip]
-        let (app_log_level, deps_log_level) = match (self.debug, self.trace) {
-            (_, true) => ("trace", "debug"), // -V, --trace
-            (true, _) => ("debug", "info"),  // -v, --debug
-            (_, _)    => ("info",  "warn"),  // default
-        };
-
-        let quiet = if self.debug || self.trace {
-            ""
-        } else {
-            // Benign startup noise: no XSETTINGS daemon, swapchain rebuilds while
-            // the window settles, no @invariant in bevy's mesh shader under the
-            // depth prepass.
-            ",winit::platform_impl::linux::x11::xdisplay=error,bevy_render::view::window=error,wgpu_core::validation=error"
-        };
-
         // XXX: fix the data flow
         let models = Dir::default();
         let reader = MemoryAssetReader { root: models.clone() };
@@ -39,8 +70,7 @@ impl Plugin for RavyPlugin {
         app.register_asset_source("gdtf", AssetSourceBuilder::new(move || Box::new(reader.clone())));
 
         app.add_plugins(DefaultPlugins.set(bevy::log::LogPlugin {
-            // lib is ours too, so it speaks at the app's level, not a dep's.
-            filter: format!("{deps_log_level}{quiet},lib={app_log_level},{}={app_log_level}", self.module),
+            filter: log_filter(self.module, self.debug, self.trace),
             ..default()
         }))
         .add_plugins(super::gltf::GltfScenePlugin)

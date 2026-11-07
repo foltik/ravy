@@ -2,6 +2,7 @@ pub mod bar_rgb_18w;
 pub mod beam_rgbw_60w;
 pub mod beam_rgbw_90w;
 pub mod gobo_60w;
+pub mod hazer_hurricane_haze_4d;
 pub mod laser_array;
 pub mod laser_scan_30w;
 pub mod par_rgbw_12x3w;

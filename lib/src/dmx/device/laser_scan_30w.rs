@@ -22,7 +22,7 @@ pub struct Laser {
     pub size: f32,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LaserColor {
     Raw(u8),
 

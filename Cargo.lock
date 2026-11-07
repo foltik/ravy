@@ -3217,6 +3217,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "homerave"
+version = "0.1.0"
+dependencies = [
+ "argh",
+ "bevy",
+ "itertools",
+ "lib",
+ "rand 0.8.7",
+]
+
+[[package]]
 name = "icu_collections"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

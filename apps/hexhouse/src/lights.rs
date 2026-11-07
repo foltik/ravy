@@ -106,10 +106,10 @@ impl<'a> Lights<'a> {
         let mut dmx = vec![0; 250];
 
         for Light { light, channel, .. } in &self.beams {
-            light.encode(&mut dmx[*channel..]);
+            light.encode(&mut dmx[*channel - 1..]);
         }
         for Light { light, channel, .. } in &self.spots {
-            light.encode(&mut dmx[*channel..]);
+            light.encode(&mut dmx[*channel - 1..]);
         }
 
         e131.send(&dmx);

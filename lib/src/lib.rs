@@ -45,7 +45,7 @@ pub mod prelude {
     pub use crate::math::{self, Axis, Ease, *};
     pub use crate::midi::{Midi, MidiDevice};
     pub use crate::osc::*;
-    pub use crate::plugin::RavyPlugin;
+    pub use crate::plugin::{RavyHeadlessPlugin, RavyPlugin};
     pub use crate::synesthesia::Synesthesia;
     pub use crate::tap::{Tap, TapMut};
     pub use crate::ui::{self, Ui};
